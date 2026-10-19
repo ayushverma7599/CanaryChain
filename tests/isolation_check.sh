@@ -22,4 +22,7 @@ chk "runs as non-root (uid 10001)"        0 py red  'import os,sys;sys.exit(0 if
 chk "root filesystem is read-only"        1 py red  'open("/evil","w")'
 chk "/data is writable"                   0 py red  'open("/data/t","w")'
 chk "decoy process rt_sync_daemon exists" 0 docker compose exec -T red sh -c 'grep -l rt_sync_daemon /proc/[0-9]*/cmdline'
+# attribution can't be spoofed: blue claims to be red, gateway must still log actor=blue
+docker compose exec -T blue python -c "import urllib.request as u;u.urlopen(u.Request('http://gateway:8080/red/health',headers={'X-Tenant':'red'}),timeout=3)" >/dev/null 2>&1
+chk "gateway attributes by IP, not header" 0 bash -c 'docker compose logs --tail 5 gateway | grep "\"actor\": \"blue\"" | grep -q spoof_claimed'
 echo; echo "passed=$pass failed=$fail"; [ $fail = 0 ]
