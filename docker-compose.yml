@@ -1,0 +1,64 @@
+# CanaryChain - isolation baseline (Ayush)
+# Each tenant sits alone on an internal network. The ONLY path between
+# tenants is the gateway. Tenants have no internet and no host access.
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp]
+  user: "10001:10001"
+  pids_limit: 128
+  mem_limit: 512m
+  cpus: 0.5
+  security_opt:
+    - no-new-privileges:true
+  # Docker's DEFAULT seccomp profile applies automatically. Tighten later
+  # (seccomp/tenant.json) only after everything works, and re-run tests/isolation_check.sh.
+
+networks:
+  red_net:  { internal: true }
+  blue_net: { internal: true }
+  llm_net:  { internal: true }
+  mgmt:     {}            # non-internal: only the gateway sits here so the host can reach it
+
+volumes:
+  red_data:
+  blue_data:
+  llm_data:
+
+services:
+  red:
+    <<: *hardening
+    build: ./tenants
+    environment: { TENANT_NAME: red }
+    networks: [red_net]
+    volumes: [red_data:/data]
+    healthcheck: &hc
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  blue:
+    <<: *hardening
+    build: ./tenants
+    environment: { TENANT_NAME: blue }
+    networks: [blue_net]
+    volumes: [blue_data:/data]
+    healthcheck: *hc
+
+  llm:
+    <<: *hardening
+    build: ./tenants
+    environment: { TENANT_NAME: llm }
+    networks: [llm_net]
+    volumes: [llm_data:/data]
+    healthcheck: *hc
+
+  gateway:
+    <<: *hardening
+    build: ./gateway
+    networks: [red_net, blue_net, llm_net, mgmt]
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on: [red, blue, llm]
+    # Later: environment: { COLLECTOR_URL: http://collector:9000/events }
