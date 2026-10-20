@@ -8,12 +8,7 @@ unsafe request, and it is not a substitute for downstream security controls.
 import re
 from dataclasses import dataclass
 
-
-_CREDENTIAL_REQUEST = re.compile(
-    r"\b(?:reveal|show|print|expose|steal|leak|exfiltrate)\b"
-    r"[\s\S]{0,80}\b(?:api\s*keys?|credentials?|secrets?|tokens?)\b",
-    re.IGNORECASE,
-)
+from app.db.database import CoreDatabase
 
 
 @dataclass(frozen=True)
@@ -26,13 +21,13 @@ class PolicyDecision:
 class PolicyEngine:
     """Apply the initial explicit prompt policy before gateway forwarding."""
 
+    def __init__(self, database: CoreDatabase) -> None:
+        self.database = database
+
     def evaluate(self, prompt: str) -> PolicyDecision:
-        if _CREDENTIAL_REQUEST.search(prompt):
-            return PolicyDecision(
-                allowed=False,
-                rule_id="credential-disclosure-request",
-                reason="Requests to disclose or exfiltrate credentials are denied.",
-            )
+        for rule in self.database.list_defensive_rules(enabled_only=True):
+            if re.search(rule.pattern, prompt, re.IGNORECASE):
+                return PolicyDecision(False, rule.rule_id, rule.description)
         return PolicyDecision(
             allowed=True,
             rule_id="no-matching-deny-rule",

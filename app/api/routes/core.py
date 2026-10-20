@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api.schemas import (
@@ -14,19 +14,22 @@ from app.api.schemas import (
 from app.llm.client import LLMClient, get_llm_client
 from app.core.gateway import GatewayError
 from app.core.policy_engine import PolicyEngine
+from app.db.database import CoreDatabase, CoreDatabaseError, get_core_database
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-policy_engine = PolicyEngine()
 
 
 def _run_operation(
     operation: Operation,
     payload: CoreRequest,
-    request: Request,
     llm_client: LLMClient,
+    database: CoreDatabase,
 ) -> CoreResponse | JSONResponse:
-    decision = policy_engine.evaluate(payload.prompt)
+    try:
+        decision = PolicyEngine(database).evaluate(payload.prompt)
+    except CoreDatabaseError as exc:
+        raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
     logger.warning(
         "policy_decision operation=%s allowed=%s rule_id=%s",
         operation,
@@ -34,6 +37,16 @@ def _run_operation(
         decision.rule_id,
     )
     if not decision.allowed:
+        try:
+            database.save_record(
+                operation=operation,
+                prompt=payload.prompt,
+                result=None,
+                status="denied",
+                rule_id=decision.rule_id,
+            )
+        except CoreDatabaseError as exc:
+            raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
         return JSONResponse(
             status_code=403,
             content=PolicyDenialResponse(
@@ -46,13 +59,30 @@ def _run_operation(
     try:
         result = llm_client.generate(payload.prompt)
     except GatewayError as exc:
+        try:
+            database.save_record(
+                operation=operation,
+                prompt=payload.prompt,
+                result=None,
+                status="gateway_error",
+            )
+        except CoreDatabaseError as database_exc:
+            raise HTTPException(status_code=503, detail="Core persistence is unavailable") from database_exc
         raise HTTPException(
             status_code=502,
             detail="LLM gateway is unavailable or returned an invalid response",
         ) from exc
 
     response = CoreResponse(operation=operation, result=result)
-    request.app.state.latest_result = response
+    try:
+        database.save_record(
+            operation=operation,
+            prompt=payload.prompt,
+            result=result,
+            status="completed",
+        )
+    except CoreDatabaseError as exc:
+        raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
     return response
 
 
@@ -64,10 +94,10 @@ def _run_operation(
 )
 def attack(
     payload: CoreRequest,
-    request: Request,
     llm_client: LLMClient = Depends(get_llm_client),
+    database: CoreDatabase = Depends(get_core_database),
 ) -> CoreResponse:
-    return _run_operation("attack", payload, request, llm_client)
+    return _run_operation("attack", payload, llm_client, database)
 
 
 @router.post(
@@ -78,10 +108,10 @@ def attack(
 )
 def query(
     payload: CoreRequest,
-    request: Request,
     llm_client: LLMClient = Depends(get_llm_client),
+    database: CoreDatabase = Depends(get_core_database),
 ) -> CoreResponse:
-    return _run_operation("query", payload, request, llm_client)
+    return _run_operation("query", payload, llm_client, database)
 
 
 @router.post(
@@ -92,16 +122,24 @@ def query(
 )
 def defense(
     payload: CoreRequest,
-    request: Request,
     llm_client: LLMClient = Depends(get_llm_client),
+    database: CoreDatabase = Depends(get_core_database),
 ) -> CoreResponse:
-    return _run_operation("defense", payload, request, llm_client)
+    return _run_operation("defense", payload, llm_client, database)
 
 
 @router.get("/result", response_model=ResultResponse)
-def get_result(request: Request) -> ResultResponse:
-    # TODO(next phase): persist results in the application database.
-    return ResultResponse(result=getattr(request.app.state, "latest_result", None))
+def get_result(database: CoreDatabase = Depends(get_core_database)) -> ResultResponse:
+    try:
+        record = database.latest_completed_record()
+    except CoreDatabaseError as exc:
+        raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
+    result = (
+        CoreResponse(operation=record.operation, result=record.result)
+        if record is not None and record.result is not None
+        else None
+    )
+    return ResultResponse(result=result)
 
 
 @router.get("/health", response_model=HealthResponse)
