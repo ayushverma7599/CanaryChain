@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  baseline:
+    name: Baseline checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Docker Compose configuration
+        run: |
+          test -f docker-compose.yml
+          docker compose -f docker-compose.yml config --quiet
+
+      - name: Check tracked Python syntax
+        run: |
+          python3 -I - <<'PY'
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["git", "ls-files", "-z", "*.py"],
+              check=True,
+              stdout=subprocess.PIPE,
+          )
+
+          files = [
+              path for path in result.stdout.decode().split("\0") if path
+          ]
+          failed = []
+
+          for path in files:
+              try:
+                  with open(path, "rb") as source_file:
+                      source = source_file.read()
+
+                  compile(source, path, "exec")
+                  print(f"OK: {path}")
+
+              except Exception as exc:
+                  print(
+                      f"FAILED: {path}: "
+                      f"{type(exc).__name__}: {exc}"
+                  )
+                  failed.append(path)
+
+          print(
+              f"Checked {len(files)} tracked Python file(s); "
+              f"{len(failed)} failed."
+          )
+
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Reject tracked environment files
+        run: |
+          bad=$(git ls-files |
+            grep -E '(^|/)\.env(\.[^/]*)?$' |
+            grep -v -E '(^|/)\.env\.example$' || true)
+
+          if [ -n "$bad" ]; then
+            echo "Tracked environment file(s) found:"
+            echo "$bad"
+            exit 1
+          fi
+
+          echo "No tracked .env files found."
+
+      - name: Check tracked shell script syntax
+        run: |
+          python3 -I - <<'PY'
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["git", "ls-files", "-z", "*.sh"],
+              check=True,
+              stdout=subprocess.PIPE,
+          )
+
+          files = [
+              path for path in result.stdout.decode().split("\0") if path
+          ]
+          failed = []
+
+          for path in files:
+              try:
+                  result = subprocess.run(
+                      ["bash", "-n", "--", path],
+                      capture_output=True,
+                      text=True,
+                      errors="replace",
+                      timeout=30,
+                  )
+
+              except Exception as exc:
+                  print(
+                      f"FAILED: {path}: "
+                      f"{type(exc).__name__}: {exc}"
+                  )
+                  failed.append(path)
+                  continue
+
+              if result.returncode == 0:
+                  print(f"OK: {path}")
+              else:
+                  print(f"FAILED: {path}")
+
+                  detail = (result.stderr or result.stdout).strip()
+                  if detail:
+                      print(detail)
+
+                  failed.append(path)
+
+          print(
+              f"Checked {len(files)} tracked shell script(s); "
+              f"{len(failed)} failed."
+          )
+
+          sys.exit(1 if failed else 0)
+          PY
