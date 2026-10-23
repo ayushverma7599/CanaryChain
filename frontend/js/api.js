@@ -53,13 +53,13 @@
     timeoutMs: 8000,
     credentials: 'same-origin', // 'omit' | 'same-origin' | 'include'
     endpoints: {
-      health:  { method: 'GET',  path: '/health' },
-      attack:  { method: 'POST', path: '/attack' },
-      defense: { method: 'POST', path: '/defense' },
-      result:  { method: 'GET',  path: '/result' },
-      audit:   { method: 'GET',  path: '/audit' },
-      canary:  { method: 'GET',  path: '/canary' },
-      verify:  { method: 'GET',  path: '/verify' }
+      health:  { method: 'GET',  path: '/api/health' },
+      attack:  { method: 'POST', path: '/api/attack' },
+      defense: { method: 'POST', path: '/api/defense' },
+      result:  { method: 'GET',  path: '/api/result' },
+      audit:   null,
+      canary:  null,
+      verify:  null
     }
   };
 
@@ -74,7 +74,8 @@
   function cloneDefaults() {
     var eps = {};
     Object.keys(DEFAULTS.endpoints).forEach(function (k) {
-      eps[k] = { method: DEFAULTS.endpoints[k].method, path: DEFAULTS.endpoints[k].path };
+      var endpoint = DEFAULTS.endpoints[k];
+      eps[k] = endpoint === null ? null : { method: endpoint.method, path: endpoint.path };
     });
     return {
       apiBaseUrl: DEFAULTS.apiBaseUrl,
@@ -147,7 +148,8 @@
             return;
           }
           var current = config.endpoints[key] ||
-                        { method: DEFAULTS.endpoints[key].method, path: DEFAULTS.endpoints[key].path };
+                        DEFAULTS.endpoints[key] ||
+                        { method: 'GET', path: '/' };
           var next = { method: current.method, path: current.path };
           var ok = true;
           if ('method' in value) {

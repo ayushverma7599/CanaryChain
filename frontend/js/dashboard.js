@@ -21,7 +21,7 @@
      docs/api-contract.md and confirms the request fields for that route.
      ====================================================================== */
   var CONTRACT = {
-    attackConfirmed: false,
+    attackConfirmed: true,
     defenseConfirmed: false
   };
 
@@ -61,7 +61,7 @@
     'attack-output', 'attack-message',
     'defense-form', 'defense-submit', 'defense-outcome', 'defense-status',
     'defense-output', 'defense-message',
-    'results-panel', 'results-message', 'refresh-results',
+    'results-panel', 'results-message', 'results-list', 'refresh-results',
     'verify-button', 'verify-status', 'verify-detail', 'verify-message'
   ];
 
@@ -535,14 +535,20 @@
   /* ======================================================================
      Attack and defense forms (gated by CONTRACT; never automatic)
      ====================================================================== */
-  function formBody(form) {
-    var body = {};
-    Array.prototype.forEach.call(form.elements, function (c) {
-      if (!c.name) return;
-      body[c.name] = c.type === 'checkbox' ? c.checked : String(c.value).trim();
-    });
-    return body;
-  }
+ function formBody(form) {
+    var prompt = form && (
+        form.prompt ||
+        (form.elements && form.elements.prompt) ||
+        (typeof form.querySelector === 'function'
+            ? form.querySelector('[name="prompt"]')
+            : null)
+    );
+
+    return {
+        prompt: prompt ? String(prompt.value || '').trim() : ''
+    };
+}
+
 
   function renderAction(a, res) {
     var ui = a.ui;
@@ -550,16 +556,32 @@
     ui.message.textContent = '';
 
     if (!res.ok) {
-      setState(ui.outcome, 'error');
-      setBadge(ui.status, 'error', 'Request failed');
-      ui.message.textContent = describeFailure(res);
-      if (isObject(res.data)) renderKv(ui.output, res.data);
+      var denied = a.label === 'Attack submission' && res.status === 403 &&
+        isObject(res.data) && res.data.code === 'policy_denied';
+      if (denied) {
+        setState(ui.outcome, 'ready');
+        setBadge(ui.status, 'blocked', 'Blocked by policy');
+        ui.message.textContent = res.data.message || describeFailure(res);
+        renderKv(ui.output, res.data);
+      } else {
+        setState(ui.outcome, 'error');
+        setBadge(ui.status, 'error', 'Request failed');
+        ui.message.textContent = describeFailure(res);
+        if (isObject(res.data)) renderKv(ui.output, res.data);
+      }
       return;
     }
     if (!isObject(res.data)) {
       setState(ui.outcome, 'error');
       setBadge(ui.status, 'none', 'Response received');
       ui.message.textContent = 'The server response was not an object, so no fields can be shown.';
+      return;
+    }
+    if (a.label === 'Attack submission' && typeof res.data.operation === 'string' &&
+        typeof res.data.result === 'string') {
+      setState(ui.outcome, 'ready');
+      setBadge(ui.status, 'allowed', res.data.operation + ' completed');
+      renderKv(ui.output, res.data);
       return;
     }
     var st = res.data[FIELDS.action.statusKey];
@@ -573,6 +595,10 @@
     var a = ACTIONS[name];
     var ui = a.ui;
 
+    if (name !== 'attack') {
+      ui.message.textContent = 'Unavailable: the backend contract supports prompt processing, not defense-rule editing.';
+      return;
+    }
     if (!CONTRACT[a.confirmedKey]) {
       ui.message.textContent = a.label + ' is disabled until Member A confirms the API contract (docs/api-contract.md).';
       return;
@@ -582,9 +608,8 @@
       return;
     }
     var body = formBody(ui.form);
-    var empty = Object.keys(body).some(function (k) { return typeof body[k] === 'string' && body[k] === ''; });
-    if (empty) {
-      ui.message.textContent = 'Fill in every field before submitting.';
+    if (!body.prompt) {
+      ui.message.textContent = 'Enter a prompt before submitting.';
       return;
     }
 
@@ -608,11 +633,41 @@
   /* ======================================================================
      Refresh
      ====================================================================== */
+  function loadLatestResult() {
+    clear(els.resultsList);
+    els.resultsMessage.textContent = 'Loading latest result…';
+    setState(els.resultsPanel, 'loading');
+    return Promise.resolve().then(function () { return API.result(); }).then(function (res) {
+      if (!res.ok) {
+        setState(els.resultsPanel, 'error');
+        els.resultsMessage.textContent = describeFailure(res);
+        return false;
+      }
+      var item = isObject(res.data) ? res.data.result : null;
+      if (!isObject(item)) {
+        setState(els.resultsPanel, 'empty');
+        els.resultsMessage.textContent = 'No completed result is available yet.';
+        return true;
+      }
+      var row = el('li', 'result-item');
+      row.appendChild(el('span', 'result-operation', textOf(item.operation, 80) || '—'));
+      row.appendChild(el('span', 'result-value', textOf(item.result, 1000) || '—'));
+      els.resultsList.appendChild(row);
+      setState(els.resultsPanel, 'ready');
+      els.resultsMessage.textContent = 'Latest completed result.';
+      return true;
+    }).catch(function () {
+      setState(els.resultsPanel, 'error');
+      els.resultsMessage.textContent = 'Unexpected error while loading the latest result.';
+      return false;
+    });
+  }
+
   function refreshAll() {
     if (state.refreshing) return;
     state.refreshing = true;
     els.refreshAll.disabled = true;
-    Promise.all([loadHealth(), loadList(state.sources.audit), loadList(state.sources.canary)]).then(function (r) {
+    Promise.all([loadHealth(), loadLatestResult()]).then(function (r) {
       state.refreshing = false;
       els.refreshAll.disabled = false;
       if (r.some(function (x) { return x === true; })) {
@@ -811,10 +866,8 @@
       }
     });
 
-    /* Results stay inert: no list endpoint is defined in the PDF (p6). */
     els.refreshResults.disabled = true;
-    els.resultsMessage.textContent =
-      'Unavailable: the contract does not yet define how to list results (open question for Member A).';
+    els.resultsMessage.textContent = 'Latest result has not been loaded yet.';
 
     if (!API) {
       if (window.console && console.error) console.error('[dashboard] window.CanaryAPI is missing; api.js did not load.');
@@ -826,18 +879,24 @@
       return;
     }
 
-    /* Read-only controls. Reading data never submits anything. */
+    /* Only implemented backend routes are enabled; Member B routes stay unavailable. */
     els.refreshAll.disabled = false;
-    els.refreshAudit.disabled = false;
-    els.refreshCanary.disabled = false;
-    els.verifyButton.disabled = false;
+    els.refreshResults.disabled = false;
+    els.refreshAudit.disabled = true;
+    els.refreshCanary.disabled = true;
+    els.verifyButton.disabled = true;
 
     els.refreshAll.addEventListener('click', refreshAll);
-    els.refreshAudit.addEventListener('click', function () { refreshOne(state.sources.audit); });
-    els.refreshCanary.addEventListener('click', function () { refreshOne(state.sources.canary); });
-    els.verifyButton.addEventListener('click', runVerify);
+    els.refreshResults.addEventListener('click', loadLatestResult);
 
-    refreshAll();   // read-only GETs: health, audit, canary. Never attack or defense.
+    setState(els.auditPanel, 'unavailable');
+    setState(els.canaryPanel, 'unavailable');
+    setBadge(els.verifyStatus, 'unavailable', 'Unavailable');
+    els.auditMessage.textContent = 'Unavailable: Member B API endpoints are not integrated yet.';
+    els.canaryMessage.textContent = 'Unavailable: Member B API endpoints are not integrated yet.';
+    els.verifyMessage.textContent = 'Unavailable: Member B verification endpoint is not integrated yet.';
+
+    refreshAll();   // only GET /health and GET /result.
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
