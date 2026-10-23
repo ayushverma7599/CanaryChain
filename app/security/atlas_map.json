@@ -1,0 +1,8 @@
+{
+  "_note": "Fill technique_id/technique_name from https://atlas.mitre.org, then set status to 'reviewed'. Entries that are not 'reviewed' are reported as 'unmapped'. Never type IDs from memory: ATLAS changes between versions.",
+  "credential_canary_trip": {"status": "TODO", "technique_id": null, "technique_name": null},
+  "file_canary_trip": {"status": "TODO", "technique_id": null, "technique_name": null},
+  "network_canary_trip": {"status": "TODO", "technique_id": null, "technique_name": null},
+  "process_canary_trip": {"status": "TODO", "technique_id": null, "technique_name": null},
+  "policy_block": {"status": "TODO", "technique_id": null, "technique_name": null}
+}
