@@ -49,9 +49,10 @@ This README is a complete guide to set up, run, test and demo the project on **W
 | Gateway (the only path between tenants, source-IP attribution) | Ayush | Done |
 | Stub LLM tenant | Ayush | Done |
 | Break-it demo scenarios + false-alarm baseline | Ayush | Done |
-| Canary agents (credential, file, network, process) | Harshit | In progress |
-| Collector API, classifier, scoring, hash chain, `verify_chain.py` | Aditya | In progress |
-| Dashboard | Aditya | In progress |
+| Core API, prompt policy, SQLite persistence | Harshit | Implemented; unit tested |
+| Dashboard core API integration | Aditya | Available at `http://localhost:8081`; audit panels remain unavailable |
+| Canary agents (credential, file, network, process) | Harshit | Not integrated |
+| Collector API, classifier, scoring, hash chain, `verify_chain.py` | Aditya | Not integrated |
 
 > Update this table as parts are merged. Sections marked *(planned)* below describe components that are not in the repository yet.
 
@@ -74,7 +75,8 @@ This README is a complete guide to set up, run, test and demo the project on **W
                      │  │red │ │blue│ │llm │   hardened tenant containers            │
                      │  └────┘ └────┘ └────┘                                         │
                      │                                                                │
-                     │  (planned) canary agents + collector + dashboard               │
+                     │  frontend :8081 ──► core API ──► gateway ──► tenants           │
+                     │  (audit/canary/verification stay unavailable until implemented)│
                      └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -84,8 +86,9 @@ Key point: `red` and `blue` have **no direct route** to each other. Every cross-
 
 ```
 CanaryChain/
-├── docker-compose.yml        # tenants, networks, hardening, gateway
-├── .gitattributes            # forces LF line endings (important on Windows)
+├── docker-compose.yml        # tenants, gateway, core API, frontend, isolated networks
+├── app/                      # FastAPI core API and SQLite persistence
+├── frontend/                 # static dashboard and same-origin API proxy
 ├── tenants/
 │   ├── Dockerfile            # one image used for red, blue and llm
 │   ├── entrypoint.sh         # starts the decoy process, then the app
@@ -98,7 +101,7 @@ CanaryChain/
 ├── demo/
 │   ├── breakit.sh            # deliberately breaks isolation (leak / network)
 │   └── normal_traffic.sh     # normal activity: canaries must stay silent
-└── (planned) agents/  collector/  dashboard/  verify_chain.py
+└── (planned) security collector, classifier, hash-chain verifier
 ```
 
 ---
@@ -232,7 +235,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Expected: `red`, `blue`, `llm` and `gateway` are `Up`, and the three tenants show `(healthy)` after about 15 seconds. The gateway shows `127.0.0.1:8080->8080/tcp`.
+Expected: `red`, `blue`, `llm`, `gateway`, `core-api`, and `frontend` are `Up` and healthy. The gateway is published at `127.0.0.1:8080`; the dashboard is published at `127.0.0.1:8081`. The core API is not published directly to the host.
 
 ### Quick manual check
 
@@ -241,6 +244,14 @@ curl -s localhost:8080/red/health
 ```
 
 Expected: `{"tenant": "red", "ok": true}`. That request went host → gateway → red.
+
+Open the dashboard at `http://localhost:8081/`. Its backend API is available through the same-origin `/api/` proxy; for example:
+
+```bash
+curl -s http://localhost:8081/api/health
+```
+
+The dashboard's audit events, canary events, and chain verification remain visibly unavailable until the real security pipeline is integrated. The defense prompt form uses the current `/defense` LLM operation; it does not create or edit defensive rules.
 
 ### Stop and clean up
 
