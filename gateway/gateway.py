@@ -3,7 +3,7 @@ Route:  /<tenant>/<path>  ->  http://<tenant>:8000/<path>
 Actor:  derived from the connection SOURCE IP (cannot be forged by a tenant).
         The X-Tenant header is only logged as "claimed" to expose spoofing attempts.
 Every request is logged as one JSON line; responses are scanned for CNRY tokens
-(hook for Harshit's credential canary / Aditya's collector)."""
+(reported to the security layer through COLLECTOR_URL, see collector_events)."""
 import json, os, re, socket, time, urllib.request, urllib.error
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -25,16 +25,50 @@ def actor_from_ip(ip):
     return "host"          # not a tenant IP -> request came from the host via mgmt
 
 
+CONTRACT_NAMES = {"red": "red-team", "blue": "blue-team", "llm": "client-llm"}
+
+
+def collector_events(ev):
+    """Security-layer events for one gateway log line (pure, unit-tested).
+
+    Only tenant-to-tenant traffic is reported here: when a response delivered to a
+    tenant carries another tenant's canary token. Requests from the host / core API
+    are covered by the core path calling app.security.scan_text(), so reporting them
+    here too would duplicate the alert.
+    """
+    actor = ev.get("actor")
+    if actor not in CONTRACT_NAMES:
+        return []
+    return [
+        {
+            "tenant": CONTRACT_NAMES[owner],
+            "event_type": "credential_canary_trip",
+            "canary_type": "credential",
+            "details": {
+                "actor": CONTRACT_NAMES[actor],
+                "evidence": f"token of {CONTRACT_NAMES[owner]} seen in gateway response to {CONTRACT_NAMES[actor]}",
+                "source": "gateway",
+                "path": ev.get("path"),
+            },
+        }
+        for owner in ev.get("tokens_seen", [])
+        if owner != actor
+    ]
+
+
 def emit(ev):
     ev["ts"] = time.time()
     print(json.dumps(ev), flush=True)
-    if COLLECTOR:
+    token = os.environ.get("INTERNAL_EVENT_TOKEN", "")
+    if not (COLLECTOR and token):
+        return
+    for event in collector_events(ev):
         try:
-            req = urllib.request.Request(COLLECTOR, json.dumps(ev).encode(),
-                                         {"Content-Type": "application/json"})
+            req = urllib.request.Request(COLLECTOR, json.dumps(event).encode(),
+                                         {"Content-Type": "application/json", "X-Internal-Token": token})
             urllib.request.urlopen(req, timeout=2)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(json.dumps({"type": "collector_error", "error": str(exc)}), flush=True)
 
 
 class G(BaseHTTPRequestHandler):
@@ -76,4 +110,5 @@ class G(BaseHTTPRequestHandler):
     def do_POST(self): self._proxy("POST")
 
 
-ThreadingHTTPServer(("0.0.0.0", 8080), G).serve_forever()
+if __name__ == "__main__":
+    ThreadingHTTPServer(("0.0.0.0", 8080), G).serve_forever()
