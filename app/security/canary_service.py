@@ -105,7 +105,7 @@ def make_file_handler(canary: FileCanary, emit, base):
         def on_any_event(self, event) -> None:
             if event.is_directory or os.path.basename(event.src_path) != os.path.basename(canary.path):
                 return
-            if event.event_type in ("opened", "closed_no_write"):
+            if event.event_type == "opened":
                 trip = canary.on_access(event.event_type)
                 if trip is not None:
                     emit(trip)

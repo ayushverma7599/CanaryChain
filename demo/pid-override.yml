@@ -1,0 +1,4 @@
+# Deliberately breaks PID isolation for the process-canary demo (see demo/breakit.sh pid).
+services:
+  blue:
+    pid: "service:red"

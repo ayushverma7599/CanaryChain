@@ -57,9 +57,9 @@
       attack:  { method: 'POST', path: '/api/attack' },
       defense: { method: 'POST', path: '/api/defense' },
       result:  { method: 'GET',  path: '/api/result' },
-      audit:   null,
-      canary:  null,
-      verify:  null
+      audit:   { method: 'GET', path: '/api/audit' },
+      canary:  { method: 'GET', path: '/api/canary' },
+      verify:  { method: 'GET', path: '/api/verify' }
     }
   };
 

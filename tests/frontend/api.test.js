@@ -52,9 +52,9 @@ test('configured API routes use same-origin /api paths and leave Member B endpoi
   assert.equal(config.endpoints.attack.path, '/api/attack');
   assert.equal(config.endpoints.defense.path, '/api/defense');
   assert.equal(config.endpoints.result.path, '/api/result');
-  assert.equal(config.endpoints.audit, null);
-  assert.equal(config.endpoints.canary, null);
-  assert.equal(config.endpoints.verify, null);
+  assert.equal(config.endpoints.audit.path, '/api/audit');
+  assert.equal(config.endpoints.canary.path, '/api/canary');
+  assert.equal(config.endpoints.verify.path, '/api/verify');
 });
 
 test('attack and defense send the backend prompt contract', async () => {
@@ -93,18 +93,17 @@ test('latest result uses the backend result wrapper', async () => {
   assert.equal(JSON.stringify(result.data), '{"result":{"operation":"query","result":"latest"}}');
 });
 
-test('audit, canary, and verification return unavailable without making requests', async () => {
-  let requestCount = 0;
-  const api = createApi(async () => {
-    requestCount += 1;
+test('audit, canary, and verification call the security endpoints', async () => {
+  const paths = [];
+  const api = createApi(async (url) => {
+    paths.push(String(url));
     return response({});
   });
 
   for (const result of await Promise.all([api.audit(), api.canary(), api.verify()])) {
-    assert.equal(result.ok, false);
-    assert.equal(result.kind, 'not_configured');
+    assert.equal(result.ok, true);
   }
-  assert.equal(requestCount, 0);
+  assert.deepEqual(paths.map((p) => new URL(p, 'http://x').pathname).sort(), ['/api/audit', '/api/canary', '/api/verify']);
 });
 
 test('security endpoints can be configured when the real pipeline is added', () => {

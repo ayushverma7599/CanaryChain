@@ -15,9 +15,20 @@ from app.llm.client import LLMClient, get_llm_client
 from app.core.gateway import GatewayError
 from app.core.policy_engine import PolicyEngine
 from app.db.database import CoreDatabase, CoreDatabaseError, get_core_database
+from app.db.security_store import SecurityDatabaseError
+from app.security import record_event, scan_text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+REQUESTING_TENANT = "red-team"  # POST /attack bodies carry no tenant yet; the contract says red-team
+
+
+def _report_security(report, *args) -> None:
+    """Record a security event; an audit problem must not hide the core result (/verify shows it)."""
+    try:
+        report(*args)
+    except (SecurityDatabaseError, ValueError):
+        logger.exception("security event was not recorded")
 
 
 def _run_operation(
@@ -37,6 +48,9 @@ def _run_operation(
         decision.rule_id,
     )
     if not decision.allowed:
+        _report_security(
+            record_event, REQUESTING_TENANT, "policy_block", {"operation": operation, "rule_id": decision.rule_id}
+        )
         try:
             database.save_record(
                 operation=operation,
@@ -73,6 +87,7 @@ def _run_operation(
             detail="LLM gateway is unavailable or returned an invalid response",
         ) from exc
 
+    _report_security(scan_text, REQUESTING_TENANT, result)
     response = CoreResponse(operation=operation, result=result)
     try:
         database.save_record(

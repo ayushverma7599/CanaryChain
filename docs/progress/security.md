@@ -11,6 +11,7 @@ Branch: `feat/B-security-layer` (based on `integration/team-project`).
 - [x] Sidecar runner (`canary_service.py`) + image (`infra/containers/canary/`)
 - [x] Gateway reports tenant-to-tenant leaks to `/internal/event`; per-tenant decoy process names; fixed a self-matching decoy check in `tests/isolation_check.sh`
 - [x] Docs: `docs/security-contract.md`, `infra/policies/README.md`, `infra/containers/README.md`, `docs/requests.md`
+- [x] Local wiring for testing (`main.py`, core path calls, `api.js` + its tests, nginx rule, compose services, `.env.example`, `tests/conftest.py`, `tests/e2e_smoke.sh`, `docs/e2e-testing.md`): these edit A's and C's files, so they ship as one reviewed PR / `docs/requests.md`, not silently
 - [ ] Merge: A wires `security_router` + calls `scan_text`/`record_event`; C adds compose services, env, nginx rule, api.js endpoints (see `docs/requests.md`)
 - [ ] Fill ATLAS IDs from https://atlas.mitre.org (`app/security/atlas_map.json`, set `status` to `reviewed`)
 - [ ] Run the full Docker stack and the demo below (not yet run: no Docker in the build environment)
@@ -33,7 +34,7 @@ ruff check app/security app/api/routes/security.py
 docker compose up -d --build && ./tests/isolation_check.sh     # needs Docker
 ```
 
-## Demo steps (after the merge items above)
+## Demo steps (after the merge items above; `tests/e2e_smoke.sh` runs all of them)
 1. `./tests/isolation_check.sh` (11/11) and `./demo/normal_traffic.sh 120`; `./demo/breakit.sh status` shows no canary events.
 2. `./demo/breakit.sh leak` -> `status` shows a credential trip (red<->blue, severity 0.72, ATLAS `unmapped` until filled).
 3. `./demo/breakit.sh net` + connect to a tenant's port 9999 -> network trip.

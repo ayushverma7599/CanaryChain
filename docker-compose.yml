@@ -2,6 +2,9 @@
 # Each tenant sits alone on an internal network. The ONLY path between
 # tenants is the gateway. Tenants have no internet and no host access.
 
+# Pin the project name: demo/breakit.sh refers to the canarychain_* network names.
+name: canarychain
+
 x-hardening: &hardening
   cap_drop: [ALL]
   read_only: true
@@ -69,7 +72,9 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    # Later: environment: { COLLECTOR_URL: http://collector:9000/events }
+    environment:
+      COLLECTOR_URL: http://core-api:8000/internal/event
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN in .env}
 
   core-api:
     build:
@@ -87,6 +92,8 @@ services:
     environment:
       CORE_DATABASE_PATH: /data/core.sqlite3
       GATEWAY_BASE_URL: http://gateway:8080
+      SECURITY_DATABASE_PATH: /data/security.sqlite3
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN in .env}
     volumes:
       - core_data:/data
     networks: [app_net, gateway_api]
@@ -122,3 +129,60 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  canary-red:
+    <<: *hardening
+    build: { context: ., dockerfile: infra/containers/canary/Dockerfile }
+    command: ["network"]
+    environment:
+      CANARY_VICTIM: red-team
+      INTERNAL_EVENT_URL: http://core-api:8000/internal/event
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN in .env}
+    networks: [red_net, gateway_api]
+    depends_on:
+      core-api: { condition: service_healthy }
+
+  canary-blue:
+    <<: *hardening
+    build: { context: ., dockerfile: infra/containers/canary/Dockerfile }
+    command: ["network"]
+    environment:
+      CANARY_VICTIM: blue-team
+      INTERNAL_EVENT_URL: http://core-api:8000/internal/event
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN in .env}
+    networks: [blue_net, gateway_api]
+    depends_on:
+      core-api: { condition: service_healthy }
+
+  canary-llm:
+    <<: *hardening
+    build: { context: ., dockerfile: infra/containers/canary/Dockerfile }
+    command: ["network"]
+    environment:
+      CANARY_VICTIM: client-llm
+      INTERNAL_EVENT_URL: http://core-api:8000/internal/event
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN in .env}
+    networks: [llm_net, gateway_api]
+    depends_on:
+      core-api: { condition: service_healthy }
+
+  canary-host:                      # file watcher + process probe. Holds the Docker socket: keep off tenant networks.
+    <<: *hardening
+    build: { context: ., dockerfile: infra/containers/canary/Dockerfile }
+    command: ["host"]
+    group_add: ["${DOCKER_GID:?set DOCKER_GID in .env (getent group docker | cut -d: -f3)}"]
+    environment:
+      INTERNAL_EVENT_URL: http://core-api:8000/internal/event
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN in .env}
+      CANARY_VOLUMES: red-team=/vols/red,blue-team=/vols/blue,client-llm=/vols/llm
+    volumes:
+      - red_data:/vols/red:ro
+      - blue_data:/vols/blue:ro
+      - llm_data:/vols/llm:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [gateway_api]
+    depends_on:                     # decoys are planted before a tenant turns healthy; arming earlier would trip on planting
+      red: { condition: service_healthy }
+      blue: { condition: service_healthy }
+      llm: { condition: service_healthy }
+      core-api: { condition: service_healthy }
