@@ -20,11 +20,14 @@ networks:
   blue_net: { internal: true }
   llm_net:  { internal: true }
   mgmt:     {}            # non-internal: only the gateway sits here so the host can reach it
+  app_net:  { internal: true }
+  gateway_api: { internal: true }
 
 volumes:
   red_data:
   blue_data:
   llm_data:
+  core_data:
 
 services:
   red:
@@ -58,7 +61,64 @@ services:
   gateway:
     <<: *hardening
     build: ./gateway
-    networks: [red_net, blue_net, llm_net, mgmt]
+    networks: [red_net, blue_net, llm_net, mgmt, gateway_api]
     ports: ["127.0.0.1:8080:8080"]
     depends_on: [red, blue, llm]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket;s=socket.create_connection(('127.0.0.1',8080),2);s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
     # Later: environment: { COLLECTOR_URL: http://collector:9000/events }
+
+  core-api:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    read_only: true
+    tmpfs: [/tmp]
+    user: "10001:10001"
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CORE_DATABASE_PATH: /data/core.sqlite3
+      GATEWAY_BASE_URL: http://gateway:8080
+    volumes:
+      - core_data:/data
+    networks: [app_net, gateway_api]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    user: "101:101"
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    security_opt:
+      - no-new-privileges:true
+    ports: ["127.0.0.1:8081:8080"]
+    networks: [app_net]
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

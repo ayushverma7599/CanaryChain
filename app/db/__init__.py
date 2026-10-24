@@ -1,0 +1,1 @@
+"""Persistence for Member A's core application data."""

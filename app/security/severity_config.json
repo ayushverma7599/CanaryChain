@@ -1,0 +1,5 @@
+{
+  "boundary_criticality": {"to_client_llm": 1.0, "red_blue": 0.9, "other": 0.6},
+  "type_weight": {"credential": 1.0, "file": 0.8, "network": 0.7, "process": 0.6},
+  "reproducibility": {"first": 0.8, "repeat": 1.0, "repeat_window_seconds": 60}
+}
