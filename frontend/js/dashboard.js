@@ -39,7 +39,7 @@
     canaryType: 'canary_type',
     atlas: 'atlas_technique',
     health: { statusKey: 'status', okValue: 'ok' },
-    verify: { verified: 'verified', checked: 'checked_entries', firstError: 'first_error_event_id' },
+    verify: { verified: 'verified', checked: 'checked_entries', firstError: 'first_error_event_id', headHash: 'head_hash' },
     action: { statusKey: 'status' }
   };
 
@@ -493,6 +493,7 @@
     if (!body) return rows;
     if (body[v.checked] !== undefined) rows.push(['Entries checked', body[v.checked]]);
     if (body[v.firstError] !== undefined && body[v.firstError] !== null) rows.push(['First failing entry', body[v.firstError]]);
+    if (typeof body[v.headHash] === 'string') rows.push(['Head hash (save it outside the system)', body[v.headHash]]);
     return rows;
   }
 
@@ -667,7 +668,8 @@
     if (state.refreshing) return;
     state.refreshing = true;
     els.refreshAll.disabled = true;
-    Promise.all([loadHealth(), loadLatestResult()]).then(function (r) {
+    runVerify();
+    Promise.all([loadHealth(), loadLatestResult(), loadList(state.sources.audit), loadList(state.sources.canary)]).then(function (r) {
       state.refreshing = false;
       els.refreshAll.disabled = false;
       if (r.some(function (x) { return x === true; })) {
@@ -879,24 +881,19 @@
       return;
     }
 
-    /* Only implemented backend routes are enabled; Member B routes stay unavailable. */
     els.refreshAll.disabled = false;
     els.refreshResults.disabled = false;
-    els.refreshAudit.disabled = true;
-    els.refreshCanary.disabled = true;
-    els.verifyButton.disabled = true;
+    els.refreshAudit.disabled = false;
+    els.refreshCanary.disabled = false;
+    els.verifyButton.disabled = false;
 
     els.refreshAll.addEventListener('click', refreshAll);
     els.refreshResults.addEventListener('click', loadLatestResult);
+    els.refreshAudit.addEventListener('click', function () { refreshOne(state.sources.audit); });
+    els.refreshCanary.addEventListener('click', function () { refreshOne(state.sources.canary); });
+    els.verifyButton.addEventListener('click', runVerify);
 
-    setState(els.auditPanel, 'unavailable');
-    setState(els.canaryPanel, 'unavailable');
-    setBadge(els.verifyStatus, 'unavailable', 'Unavailable');
-    els.auditMessage.textContent = 'Unavailable: Member B API endpoints are not integrated yet.';
-    els.canaryMessage.textContent = 'Unavailable: Member B API endpoints are not integrated yet.';
-    els.verifyMessage.textContent = 'Unavailable: Member B verification endpoint is not integrated yet.';
-
-    refreshAll();   // only GET /health and GET /result.
+    refreshAll();   // health, latest result, audit events, canary events and chain verification (all live API data)
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

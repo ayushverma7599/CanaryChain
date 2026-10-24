@@ -25,6 +25,7 @@ networks:
   mgmt:     {}            # non-internal: only the gateway sits here so the host can reach it
   app_net:  { internal: true }
   gateway_api: { internal: true }
+  edge:     {}            # non-internal, frontend only: Docker does not publish ports for containers on internal-only networks
 
 volumes:
   red_data:
@@ -120,7 +121,7 @@ services:
     security_opt:
       - no-new-privileges:true
     ports: ["127.0.0.1:8081:8080"]
-    networks: [app_net]
+    networks: [app_net, edge]
     depends_on:
       core-api:
         condition: service_healthy

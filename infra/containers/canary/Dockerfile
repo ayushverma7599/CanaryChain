@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 WORKDIR /app
 COPY infra/containers/canary/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir --default-timeout=120 --retries 10 -r /app/requirements.txt
 COPY app/security/ /app/app/security/
 ENTRYPOINT ["python", "-m", "app.security.canary_service"]
 CMD ["network"]

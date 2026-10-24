@@ -295,16 +295,34 @@ test('dashboard displays an attack API error', async () => {
   assert.equal(nodes.get('attack-message').textContent, 'API returned HTTP 502.');
 });
 
-test('Member B panels remain unavailable and trigger no audit, canary, or verify requests', async () => {
-  const { api, calls } = makeApi();
+test('audit, canary and verification are requested from the live API on start', async () => {
+  const { api, calls } = makeApi({
+    verify: async () => ({ ok: true, data: { verified: true, checked_entries: 3, head_hash: 'abc123' } })
+  });
   const { nodes } = createDashboard(api);
   await settle();
 
-  assert.equal(nodes.get('refresh-audit').disabled, true);
-  assert.equal(nodes.get('refresh-canary').disabled, true);
-  assert.equal(nodes.get('verify-button').disabled, true);
-  assert.equal(nodes.get('audit-panel').getAttribute('data-state'), 'unavailable');
-  assert.equal(nodes.get('canary-panel').getAttribute('data-state'), 'unavailable');
+  assert.equal(nodes.get('refresh-audit').disabled, false);
+  assert.equal(nodes.get('refresh-canary').disabled, false);
+  assert.equal(nodes.get('verify-button').disabled, false);
+  assert.deepEqual(calls.map((call) => call.name).sort(), ['audit', 'canary', 'health', 'result', 'verify']);
+  assert.equal(nodes.get('verify-status').getAttribute('data-status'), 'verified');
+});
+
+test('verification failure is shown as failed, never as verified', async () => {
+  const { api } = makeApi({
+    verify: async () => ({ ok: true, data: { verified: false, checked_entries: 4, first_error_event_id: 'evt-1', head_hash: null } })
+  });
+  const { nodes } = createDashboard(api);
+  await settle();
+
+  assert.equal(nodes.get('verify-status').getAttribute('data-status'), 'failed');
+});
+
+test('verification shows unavailable when the API cannot be reached', async () => {
+  const { api } = makeApi({ verify: async () => ({ ok: false, kind: 'network', status: 0 }) });
+  const { nodes } = createDashboard(api);
+  await settle();
+
   assert.equal(nodes.get('verify-status').getAttribute('data-status'), 'unavailable');
-  assert.deepEqual(calls.map((call) => call.name).sort(), ['health', 'result']);
 });

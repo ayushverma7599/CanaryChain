@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 API=http://127.0.0.1:8081/api
 pass=0; fail=0
 get()   { curl -s -m 10 "$API/$1"; }
-js()    { python3 -c "import sys,json;d=json.load(sys.stdin);print($1)"; }          # expression over parsed JSON `d`
+js()    { python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }          # expression over parsed JSON `d`
 code()  { curl -s -m 15 -o /dev/null -w '%{http_code}' "$@"; }
 ncanary() { get canary | js "len(d['items'])"; }
 ok()    { echo "PASS  $1"; pass=$((pass+1)); }
@@ -21,6 +21,20 @@ wait_canary() { # name, python expr over /canary json, timeout seconds
   done
   bad "$1 (no matching event within $3 s)"
 }
+
+if ! curl -sf -m 5 http://127.0.0.1:8081/healthz >/dev/null; then
+  echo "The dashboard proxy is not reachable on http://127.0.0.1:8081, so the end-to-end checks cannot run."
+  echo "Check: docker compose ps   (frontend must show 127.0.0.1:8081->8080/tcp)"
+  echo "       docker compose logs --tail 20 frontend core-api"
+  exit 2
+fi
+
+if [ "$(get verify | js "d['verified']")" != "True" ]; then
+  echo "The audit chain does not verify before the run starts (verify said: $(get verify))."
+  echo "This usually means an earlier run of this script already tampered with the log. Reset first:"
+  echo "  docker compose down -v && docker compose up -d"
+  exit 2
+fi
 
 echo "== stack"
 check "dashboard (frontend) is served"           bash -c "curl -sf -m 10 http://127.0.0.1:8081/ | grep -qi '<html'"
