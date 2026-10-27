@@ -23,6 +23,9 @@ jobs:
           persist-credentials: false
 
       - name: Validate Docker Compose configuration
+        env:
+          INTERNAL_EVENT_TOKEN: ci-placeholder-token
+          DOCKER_GID: "999"
         run: |
           test -f docker-compose.yml
           docker compose -f docker-compose.yml config --quiet
