@@ -107,3 +107,19 @@ def test_scan_text_returns_event_ids_and_records_trips(service):
     (entry,) = service.store.list_canary()
     assert entry.event_id == ids[0] and entry.tenant == "blue-team" and entry.details["actor"] == "red-team"
     assert service.scan_text("red-team", "clean reply") == []
+
+
+def test_shipped_atlas_map_is_well_formed_and_nothing_unreviewed_is_shown():
+    import json
+    from pathlib import Path
+
+    data = json.loads(Path("app/security/atlas_map.json").read_text(encoding="utf-8"))
+    entries = {k: v for k, v in data.items() if not k.startswith("_")}
+    assert set(entries) >= {"credential_canary_trip", "file_canary_trip", "network_canary_trip", "process_canary_trip", "policy_block"}
+    for event_type, entry in entries.items():
+        assert entry["status"] in {"TODO", "proposed", "reviewed"}, event_type
+        if entry["status"] != "TODO":
+            assert entry["technique_id"].startswith("AML.T") and entry["technique_name"] and entry["tactic"] and entry["sources"], event_type
+    mapper = AtlasMapper(data)
+    unreviewed = [e for e, v in entries.items() if v["status"] != "reviewed"]
+    assert all(mapper.lookup(e) == "unmapped" for e in unreviewed)

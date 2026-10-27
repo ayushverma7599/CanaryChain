@@ -22,7 +22,7 @@
      ====================================================================== */
   var CONTRACT = {
     attackConfirmed: true,
-    defenseConfirmed: false
+    defenseConfirmed: true
   };
 
   /* ======================================================================
@@ -35,6 +35,7 @@
     eventId: 'event_id',
     timestamp: 'timestamp',
     tenant: 'tenant',
+    actor: 'actor',
     eventType: 'event_type',
     canaryType: 'canary_type',
     atlas: 'atlas_technique',
@@ -228,7 +229,7 @@
       tr.setAttribute('data-index', String(entry.index));
       tr.tabIndex = 0;
       tr.setAttribute('aria-selected', 'false');
-      [FIELDS.timestamp, FIELDS.tenant, FIELDS.eventType, FIELDS.atlas].forEach(function (key) {
+      [FIELDS.timestamp, FIELDS.tenant, FIELDS.actor, FIELDS.eventType, FIELDS.atlas].forEach(function (key) {
         var td = el('td');
         fillValue(td, item[key]);
         tr.appendChild(td);
@@ -254,7 +255,8 @@
       var tenant = textOf(item[FIELDS.tenant], 80);
       var ts = textOf(item[FIELDS.timestamp], 80);
       var atlas = textOf(item[FIELDS.atlas], 80);
-      if (tenant) parts.push(tenant);
+      var actor = textOf(item[FIELDS.actor], 80);
+      if (tenant) parts.push(actor ? tenant + ' touched by ' + actor : tenant);
       if (ts) parts.push(ts);
       if (atlas) parts.push('ATLAS ' + atlas);
       btn.appendChild(el('span', 'event-meta', parts.length ? parts.join(' \u00b7 ') : 'No details provided'));
@@ -551,6 +553,26 @@
 }
 
 
+  /* Reads one named control of a form (real DOM or the test stub). */
+  function field(form, name) {
+    if (form && typeof form.querySelector === 'function') {
+      var found = form.querySelector('[name="' + name + '"]');
+      if (found) return found;
+    }
+    return form && form.elements && form.elements[name] ? form.elements[name] : null;
+  }
+
+  function defenseBody(form) {
+    var name = field(form, 'name');
+    var rule = field(form, 'rule');
+    var enabled = field(form, 'enabled');
+    return {
+      name: name ? String(name.value || '').trim() : '',
+      rule: rule ? String(rule.value || '').trim() : '',
+      enabled: !!(enabled && enabled.checked)
+    };
+  }
+
   function renderAction(a, res) {
     var ui = a.ui;
     clear(ui.output);
@@ -568,6 +590,9 @@
         setState(ui.outcome, 'error');
         setBadge(ui.status, 'error', 'Request failed');
         ui.message.textContent = describeFailure(res);
+        if (a.label === 'Defense rule submission' && isObject(res.data) && typeof res.data.detail === 'string') {
+          ui.message.textContent += ' ' + clip(res.data.detail, 200);
+        }
         if (isObject(res.data)) renderKv(ui.output, res.data);
       }
       return;
@@ -596,10 +621,6 @@
     var a = ACTIONS[name];
     var ui = a.ui;
 
-    if (name !== 'attack') {
-      ui.message.textContent = 'Unavailable: the backend contract supports prompt processing, not defense-rule editing.';
-      return;
-    }
     if (!CONTRACT[a.confirmedKey]) {
       ui.message.textContent = a.label + ' is disabled until Member A confirms the API contract (docs/api-contract.md).';
       return;
@@ -608,9 +629,12 @@
       ui.message.textContent = 'Unavailable: API base URL is not configured for this page.';
       return;
     }
-    var body = formBody(ui.form);
-    if (!body.prompt) {
-      ui.message.textContent = 'Enter a prompt before submitting.';
+    var body = name === 'attack' ? formBody(ui.form) : defenseBody(ui.form);
+    var missing = name === 'attack'
+      ? (!body.prompt && 'Enter a prompt before submitting.')
+      : ((!body.name || !body.rule) && 'Enter a rule name and a rule before saving.');
+    if (missing) {
+      ui.message.textContent = missing;
       return;
     }
 

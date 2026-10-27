@@ -115,7 +115,7 @@ function makeApi(overrides = {}) {
     health: async () => ({ ok: true, data: { status: 'ok' } }),
     result: async () => ({ ok: true, data: { result: null } }),
     attack: async (body) => ({ ok: true, data: { operation: 'attack', result: body.prompt } }),
-    defense: async (body) => ({ ok: true, data: { operation: 'defense', result: body.prompt } }),
+    defense: async () => ({ ok: true, data: { rule_id: 'block-zebra', status: 'saved' } }),
     audit: async () => ({ ok: true, data: { items: [] } }),
     canary: async () => ({ ok: true, data: { items: [] } }),
     verify: async () => ({ ok: true, data: { verified: true } })
@@ -146,16 +146,19 @@ function createDashboard(api) {
     }
   }
 
-  for (const [formId, promptId] of [
-    ['attack-form', 'attack-prompt'],
-    ['defense-form', 'defense-prompt']
-  ]) {
-    const form = nodes.get(formId);
-    const prompt = new ElementStub('textarea', promptId);
-    prompt.name = 'prompt';
-    form.elements = [prompt];
-    form.prompt = prompt;
-  }
+  const attackForm = nodes.get('attack-form');
+  const prompt = new ElementStub('textarea', 'attack-prompt');
+  prompt.name = 'prompt';
+  attackForm.elements = [prompt];
+  attackForm.prompt = prompt;
+
+  const enabledBox = nodes.get('defense-enabled');
+  enabledBox.checked = false;
+  nodes.get('defense-form').elements = {
+    name: nodes.get('defense-name'),
+    rule: nodes.get('defense-rule'),
+    enabled: enabledBox
+  };
 
   const documentListeners = Object.create(null);
   const document = {
@@ -325,4 +328,66 @@ test('verification shows unavailable when the API cannot be reached', async () =
   await settle();
 
   assert.equal(nodes.get('verify-status').getAttribute('data-status'), 'unavailable');
+});
+
+test('defense form sends name, rule and enabled and shows the saved rule id', async () => {
+  const { api, calls } = makeApi();
+  const { nodes } = createDashboard(api);
+  nodes.get('defense-name').value = '  Block Zebra ';
+  nodes.get('defense-rule').value = 'zebra';
+  nodes.get('defense-enabled').checked = true;
+  assert.equal(nodes.get('defense-submit').disabled, false);
+  nodes.get('defense-form').dispatch('submit');
+  await settle();
+
+  const call = calls.find((c) => c.name === 'defense');
+  assert.deepEqual(JSON.parse(JSON.stringify(call.args[0])), { name: 'Block Zebra', rule: 'zebra', enabled: true });
+  assert.equal(nodes.get('defense-status').getAttribute('data-status'), 'saved');
+  assert.equal(nodes.get('defense-output').textContent.includes('block-zebra'), true);
+});
+
+test('defense form asks for a name and a rule and sends nothing otherwise', async () => {
+  const { api, calls } = makeApi();
+  const { nodes } = createDashboard(api);
+  nodes.get('defense-name').value = 'only a name';
+  nodes.get('defense-form').dispatch('submit');
+  await settle();
+
+  assert.equal(calls.some((c) => c.name === 'defense'), false);
+  assert.equal(nodes.get('defense-message').textContent, 'Enter a rule name and a rule before saving.');
+});
+
+test('defense form shows the reason when the server rejects a rule', async () => {
+  const { api } = makeApi({
+    defense: async () => ({
+      ok: false,
+      kind: 'http',
+      message: 'API returned HTTP 422.',
+      status: 422,
+      data: { detail: 'rule is not a valid regular expression' }
+    })
+  });
+  const { nodes } = createDashboard(api);
+  nodes.get('defense-name').value = 'bad';
+  nodes.get('defense-rule').value = '[unclosed';
+  nodes.get('defense-form').dispatch('submit');
+  await settle();
+
+  assert.equal(nodes.get('defense-status').getAttribute('data-status'), 'error');
+  assert.equal(nodes.get('defense-message').textContent.includes('not a valid regular expression'), true);
+});
+
+test('audit rows and canary items show who touched the canary', async () => {
+  const item = { event_id: 'e1', timestamp: 't', tenant: 'blue-team', actor: 'red-team', event_type: 'credential_canary_trip',
+                 canary_type: 'credential', atlas_technique: 'unmapped', severity_score: 0.72 };
+  const { api } = makeApi({
+    audit: async () => ({ ok: true, data: { items: [item] } }),
+    canary: async () => ({ ok: true, data: { items: [item] } })
+  });
+  const { nodes } = createDashboard(api);
+  await settle();
+
+  const cells = nodes.get('audit-body').children[0].children.map((td) => td.textContent);
+  assert.deepEqual(cells, ['t', 'blue-team', 'red-team', 'credential_canary_trip', 'unmapped']);
+  assert.equal(nodes.get('canary-list').textContent.includes('blue-team touched by red-team'), true);
 });

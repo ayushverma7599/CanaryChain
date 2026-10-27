@@ -44,10 +44,13 @@ def test_contract_fields_for_audit_and_canary(env):
     service.record_event("red-team", "policy_block", {"rule_id": "r"})
     audit = client.get("/audit").json()["items"]
     assert [i["event_type"] for i in audit] == ["policy_block", "credential_canary_trip"]
-    assert set(audit[0]) == {"event_id", "timestamp", "tenant", "event_type", "atlas_technique", "severity_score", "entry_hash"}
+    assert set(audit[0]) == {"event_id", "timestamp", "tenant", "actor", "event_type", "atlas_technique", "severity_score", "entry_hash"}
+    assert audit[0]["actor"] is None  # a policy_block has no actor
+    assert audit[1]["actor"] == "red-team"  # who received blue's token
     canary = client.get("/canary").json()["items"]
     assert len(canary) == 1 and canary[0]["canary_type"] == "credential"
-    assert set(canary[0]) == {"event_id", "timestamp", "tenant", "canary_type", "atlas_technique", "severity_score"}
+    assert set(canary[0]) == {"event_id", "timestamp", "tenant", "actor", "canary_type", "atlas_technique", "severity_score"}
+    assert (canary[0]["tenant"], canary[0]["actor"]) == ("blue-team", "red-team")
     assert canary[0]["atlas_technique"] == "unmapped" and canary[0]["severity_score"] == pytest.approx(0.72)
 
 

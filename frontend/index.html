@@ -76,12 +76,6 @@
             <span class="health-text" id="health-text">API health: not checked</span>
           </div>
 
-          <button type="button" class="chip" id="env-control" disabled>
-            Environment: not configured
-          </button>
-          <button type="button" class="chip" id="account-control" disabled>
-            Account: not connected
-          </button>
         </div>
       </header>
 
@@ -153,13 +147,14 @@
                     <tr>
                       <th scope="col">Time</th>
                       <th scope="col">Tenant</th>
+                      <th scope="col">Actor</th>
                       <th scope="col">Event type</th>
                       <th scope="col">ATLAS technique</th>
                     </tr>
                   </thead>
                   <tbody id="audit-body">
                     <tr class="empty-row">
-                      <td colspan="4">Unavailable: no audit data loaded.</td>
+                      <td colspan="5">Unavailable: no audit data loaded.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -238,10 +233,10 @@
               <form class="form" id="attack-form" novalidate>
                 <div class="field">
                   <label for="attack-tenant">Tenant</label>
-                  <input type="text" id="attack-tenant" name="tenant" autocomplete="off"
+                  <input type="text" id="attack-tenant" name="tenant" value="red-team" readonly
                          aria-describedby="attack-tenant-hint">
                   <p class="hint" id="attack-tenant-hint">
-                    Accepted values come from the API contract (pending).
+                    Informational: the backend currently records every attack as red-team and only reads the prompt.
                   </p>
                 </div>
 
@@ -253,7 +248,7 @@
                 <div class="form-actions">
                   <button type="submit" class="button button-primary" id="attack-submit"
                           disabled data-requires-api>Submit attack</button>
-                  <span class="hint">Disabled until the API contract is wired.</span>
+                  <span class="hint">The server decides whether the prompt is allowed.</span>
                 </div>
               </form>
 
@@ -303,7 +298,10 @@
 
                 <div class="field">
                   <label for="defense-rule">Rule</label>
-                  <textarea id="defense-rule" name="rule" rows="4"></textarea>
+                  <textarea id="defense-rule" name="rule" rows="4" aria-describedby="defense-rule-hint"></textarea>
+                  <p class="hint" id="defense-rule-hint">
+                    A case-insensitive regular expression (up to 200 characters). Prompts that match an enabled rule are denied.
+                  </p>
                 </div>
 
                 <div class="field field-inline">
@@ -314,7 +312,7 @@
                 <div class="form-actions">
                   <button type="submit" class="button button-primary" id="defense-submit"
                           disabled data-requires-api>Save rule</button>
-                  <span class="hint">Disabled until the API contract is wired.</span>
+                  <span class="hint">Saves or updates the rule on the server.</span>
                 </div>
               </form>
 

@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 from app.api.schemas import (
     CoreRequest,
     CoreResponse,
+    DefenseRuleRequest,
+    DefenseRuleResponse,
     HealthResponse,
     Operation,
     PolicyDenialResponse,
@@ -13,14 +15,16 @@ from app.api.schemas import (
 )
 from app.llm.client import LLMClient, get_llm_client
 from app.core.gateway import GatewayError
-from app.core.policy_engine import PolicyEngine
+from app.core.policy_engine import PolicyEngine, rule_id_for, validate_rule_pattern
 from app.db.database import CoreDatabase, CoreDatabaseError, get_core_database
+from app.db.models_core import DefensiveRule
 from app.db.security_store import SecurityDatabaseError
 from app.security import record_event, scan_text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 REQUESTING_TENANT = "red-team"  # POST /attack bodies carry no tenant yet; the contract says red-team
+DEFENDING_TENANT = "blue-team"
 
 
 def _report_security(report, *args) -> None:
@@ -129,17 +133,45 @@ def query(
     return _run_operation("query", payload, llm_client, database)
 
 
+def _save_defense_rule(payload: DefenseRuleRequest, database: CoreDatabase) -> DefenseRuleResponse:
+    """Create or update a Blue Team rule; the policy engine applies it to the next request."""
+    try:
+        rule_id = rule_id_for(payload.name)
+        validate_rule_pattern(payload.rule)
+        database.save_defensive_rule(
+            DefensiveRule(
+                rule_id=rule_id,
+                pattern=payload.rule,
+                description=f"Denied by defense rule \u201c{payload.name}\u201d.",
+                enabled=payload.enabled,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CoreDatabaseError as exc:
+        raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
+    _report_security(
+        record_event, DEFENDING_TENANT, "defense_rule_saved", {"rule_id": rule_id, "enabled": payload.enabled}
+    )
+    return DefenseRuleResponse(rule_id=rule_id, status="saved")
+
+
 @router.post(
     "/defense",
-    response_model=CoreResponse,
-    responses={403: {"model": PolicyDenialResponse, "description": "Request denied by the initial prompt policy."}},
-    description="Submit a defense operation. Operation-specific semantics are not yet defined.",
+    response_model=DefenseRuleResponse | CoreResponse,
+    responses={403: {"model": PolicyDenialResponse, "description": "Prompt denied by the policy (prompt bodies only)."}},
+    description=(
+        "Blue Team: save or update a defensive rule with {name, rule, enabled}; the rule id is derived from the "
+        "name. For backward compatibility a {prompt} body still runs the shared prompt operation."
+    ),
 )
 def defense(
-    payload: CoreRequest,
+    payload: DefenseRuleRequest | CoreRequest,
     llm_client: LLMClient = Depends(get_llm_client),
     database: CoreDatabase = Depends(get_core_database),
-) -> CoreResponse:
+) -> DefenseRuleResponse | CoreResponse | JSONResponse:
+    if isinstance(payload, DefenseRuleRequest):
+        return _save_defense_rule(payload, database)
     return _run_operation("defense", payload, llm_client, database)
 
 

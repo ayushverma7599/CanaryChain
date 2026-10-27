@@ -18,6 +18,7 @@ class AuditItem(BaseModel):
     event_id: str
     timestamp: str
     tenant: str
+    actor: str | None
     event_type: str
     atlas_technique: str
     severity_score: float | None
@@ -28,6 +29,7 @@ class CanaryItem(BaseModel):
     event_id: str
     timestamp: str
     tenant: str
+    actor: str | None
     canary_type: str
     atlas_technique: str
     severity_score: float | None

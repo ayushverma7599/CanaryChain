@@ -18,7 +18,7 @@ The three POST operations accept a JSON object with one defined field:
 |---|---|
 | `POST /attack` | Evaluates the prompt against enabled defensive rules, then on approval uses the LLM client. |
 | `POST /query` | Evaluates the prompt against enabled defensive rules, then on approval uses the LLM client. |
-| `POST /defense` | Evaluates the prompt against enabled defensive rules, then on approval uses the LLM client. |
+| `POST /defense` | Blue Team rule management: with a `{name, rule, enabled}` body it saves or updates a defensive rule (see below). With a `{prompt}` body it behaves like the other two operations. |
 
 The repository does not define different prompt construction or processing behavior for these three operations. They currently share the same processing path; the operation name is recorded and returned as a label. Do not infer distinct attack, query, or defense semantics from the paths alone.
 
@@ -54,6 +54,24 @@ The decision is logged, and when the database write succeeds a denied core recor
 - HTTP `503`: policy-rule reads or route persistence operations raise the handled `CoreDatabaseError`. The route returns `{"detail":"Core persistence is unavailable"}`. This response can also occur after an approved gateway call if saving its completed result fails.
 - Database initialization occurs in the FastAPI dependency provider before the route executes. The route does not catch initialization errors at that point, so the API does not guarantee the documented HTTP `503` response for that failure.
 - The code does not define a custom handler for unexpected exceptions outside these cases, including dependency-initialization failures; their response behavior is not specified here.
+
+## POST /defense: saving a rule
+
+Request:
+
+```json
+{"name": "Block Zebra", "rule": "zebra", "enabled": true}
+```
+
+- `name`: 1 to 80 characters. The rule id is derived from it (lower-cased, runs of other characters become `-`), so saving the same name again **updates** that rule. A name with no letters or digits is rejected.
+- `rule`: 1 to 200 characters, a case-insensitive regular expression searched in prompts. It must compile and must not contain a quantified group that itself contains a quantifier (for example `(a+)+`), which is a heuristic guard against catastrophic backtracking; it is not a proof that every pattern is fast.
+- `enabled`: defaults to `true`. A disabled rule is stored but not applied.
+
+Response `200`: `{"rule_id": "block-zebra", "status": "saved"}`. Invalid input returns `422` with `{"detail": "..."}`; a persistence failure returns `503` as for the other routes.
+
+The saved rule is read by the policy engine on the next request, so a matching `POST /attack` returns the `403` policy denial with that `rule_id`. Each save is recorded in the audit chain as `defense_rule_saved` for `blue-team` (`details`: `rule_id`, `enabled`).
+
+A body that contains neither shape returns `422`. Any enabled rule, including a broad one such as `.`, will deny every matching prompt: the Blue Team is trusted to manage rules.
 
 ## GET /result
 

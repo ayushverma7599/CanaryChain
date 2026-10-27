@@ -21,6 +21,9 @@ echo "head_hash saved OUTSIDE the system (also written to /tmp/head_hash.txt):"
 curl -s localhost:8081/api/verify | python3 -c "import sys,json;print(json.load(sys.stdin)['head_hash'])" | tee /tmp/head_hash.txt
 pause "Click 'Verify chain'. SCREENSHOT 5: Verified, entries checked, head hash (must match the line above)."
 
+./demo/breakit.sh truncate
+pause "Click 'Verify chain'. SCREENSHOT 5b: still Verified, but fewer entries and a DIFFERENT head hash than the one saved above (the external anchor catches deletions)."
+
 ./demo/breakit.sh tamper
 pause "Click 'Verify chain'. SCREENSHOT 6: Verification failed + first failing entry."
 

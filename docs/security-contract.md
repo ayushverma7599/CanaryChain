@@ -36,14 +36,24 @@ Example: red<->blue file trip, repeated: 0.9 x 0.8 x 1.0 = 0.72.
 
 ## ATLAS
 
-`app/security/atlas_map.json`. Every entry is currently `TODO`, so every event reports `"unmapped"`. To map one: look the technique up on https://atlas.mitre.org, fill `technique_id` and `technique_name`, set `status` to `reviewed`. Do not type IDs from memory.
+`app/security/atlas_map.json`, looked up against ATLAS data version 2026.07. Each entry has a `status`:
+`TODO` (no suitable technique found), `proposed` (candidate from public sources, not yet checked by a team member) and `reviewed` (checked on https://atlas.mitre.org by a team member). **Only `reviewed` entries are shown; everything else is reported as `unmapped`.**
+
+| Event | Candidate | Tactic | Fit |
+|---|---|---|---|
+| `credential_canary_trip` | AML.T0057 LLM Data Leakage | Exfiltration | strong |
+| `file_canary_trip` | AML.T0035 AI Artifact Collection | Collection | moderate |
+| `policy_block` | AML.T0051 LLM Prompt Injection | Execution | moderate (attempt, blocked) |
+| `network_canary_trip`, `process_canary_trip` | none found | | leave `unmapped` |
+
+To publish a mapping: open the technique page on atlas.mitre.org, confirm the ID, name and tactic, then set `status` to `reviewed`.
 
 ## Endpoints
 
 | Route | Response |
 |---|---|
-| `GET /audit?limit=200` | `{"items":[{event_id, timestamp, tenant, event_type, atlas_technique, severity_score, entry_hash}]}` newest first |
-| `GET /canary?limit=200` | `{"items":[{event_id, timestamp, tenant, canary_type, atlas_technique, severity_score}]}` newest first |
+| `GET /audit?limit=200` | `{"items":[{event_id, timestamp, tenant, actor, event_type, atlas_technique, severity_score, entry_hash}]}` newest first. `actor` = who touched the canary (null for events without one, e.g. a policy block) |
+| `GET /canary?limit=200` | `{"items":[{event_id, timestamp, tenant, actor, canary_type, atlas_technique, severity_score}]}` newest first |
 | `GET /verify` | `{"verified": bool, "checked_entries": int, "first_error_event_id": str\|null, "head_hash": str\|null}`. A failed verification is HTTP 200 with `verified:false`. `head_hash` = hash of the last entry that passed. |
 | `POST /internal/event` | body `{tenant, event_type, canary_type?, details}`, header `X-Internal-Token`. 201 `{"event_id"}`; 401 bad token; 503 `internal_events_disabled` if `INTERNAL_EVENT_TOKEN` is unset; 422 invalid event |
 

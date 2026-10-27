@@ -17,6 +17,27 @@ class CoreRequest(BaseModel):
         return value
 
 
+class DefenseRuleRequest(BaseModel):
+    """Blue Team rule submission: a case-insensitive regular expression that denies matching prompts."""
+
+    name: str = Field(min_length=1, max_length=80)
+    rule: str = Field(min_length=1, max_length=200)
+    enabled: bool = True
+
+    @field_validator("name", "rule")
+    @classmethod
+    def must_contain_non_whitespace(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must contain non-whitespace characters")
+        return value
+
+
+class DefenseRuleResponse(BaseModel):
+    rule_id: str
+    status: Literal["saved"]
+
+
 class CoreResponse(BaseModel):
     operation: Operation
     result: str

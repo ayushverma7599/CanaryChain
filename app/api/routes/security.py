@@ -25,6 +25,12 @@ def error_response(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
 
 
+def _actor(entry) -> str | None:
+    """Who touched the canary (stored in details); None for events with no actor."""
+    actor = entry.details.get("actor")
+    return str(actor) if actor is not None else None
+
+
 def _store_unavailable() -> JSONResponse:
     return error_response(503, "security_store_unavailable", "Security storage is unavailable")
 
@@ -36,7 +42,7 @@ def get_audit(limit: int = Query(200, ge=1, le=1000), service: SecurityService =
         entries = service.store.list_audit(limit)
     except SecurityDatabaseError:
         return _store_unavailable()
-    return AuditResponse(items=[AuditItem(**e.__dict__) for e in entries])
+    return AuditResponse(items=[AuditItem(**e.__dict__, actor=_actor(e)) for e in entries])
 
 
 @router.get("/canary", response_model=CanaryResponse)
@@ -46,7 +52,7 @@ def get_canary(limit: int = Query(200, ge=1, le=1000), service: SecurityService 
         entries = service.store.list_canary(limit)
     except SecurityDatabaseError:
         return _store_unavailable()
-    return CanaryResponse(items=[CanaryItem(**e.__dict__) for e in entries])
+    return CanaryResponse(items=[CanaryItem(**e.__dict__, actor=_actor(e)) for e in entries])
 
 
 @router.get("/verify", response_model=VerifyResponse)

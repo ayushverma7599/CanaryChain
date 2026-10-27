@@ -13,7 +13,9 @@ Branch: `feat/B-security-layer` (based on `integration/team-project`).
 - [x] Docs: `docs/security-contract.md`, `infra/policies/README.md`, `infra/containers/README.md`, `docs/requests.md`
 - [x] Local wiring for testing (`main.py`, core path calls, `api.js` + its tests, nginx rule, compose services, `.env.example`, `tests/conftest.py`, `tests/e2e_smoke.sh`, `docs/e2e-testing.md`): these edit A's and C's files, so they ship as one reviewed PR / `docs/requests.md`, not silently
 - [ ] Merge: A wires `security_router` + calls `scan_text`/`record_event`; C adds compose services, env, nginx rule, api.js endpoints (see `docs/requests.md`)
-- [ ] Fill ATLAS IDs from https://atlas.mitre.org (`app/security/atlas_map.json`, set `status` to `reviewed`)
+- [x] ATLAS candidates researched and recorded as `proposed` (AML.T0057, AML.T0035, AML.T0051; network/process left unmapped)
+- [ ] Check the three ATLAS pages yourself, then set `status` to `reviewed` in `app/security/atlas_map.json`
+- [x] `actor` in `/audit` and `/canary`; `demo/breakit.sh truncate` (external head-hash anchor demo)
 - [ ] Run the full Docker stack and the demo below (not yet run: no Docker in the build environment)
 
 ## Current state

@@ -11,6 +11,29 @@ from dataclasses import dataclass
 from app.db.database import CoreDatabase
 
 
+# A group that contains a quantifier and is itself quantified, e.g. (a+)+ or (.*)*: the classic
+# catastrophic-backtracking shape. This is a heuristic, not a proof of safety.
+_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]")
+
+
+def rule_id_for(name: str) -> str:
+    """Stable rule id from a rule name, so saving the same name again updates the rule."""
+    rule_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60].strip("-")
+    if not rule_id:
+        raise ValueError("rule name must contain letters or digits")
+    return rule_id
+
+
+def validate_rule_pattern(pattern: str) -> None:
+    """Reject patterns that do not compile or that look prone to catastrophic backtracking."""
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise ValueError("rule is not a valid regular expression") from exc
+    if _NESTED_QUANTIFIER.search(pattern):
+        raise ValueError("rule contains a nested quantifier, which can make matching extremely slow")
+
+
 @dataclass(frozen=True)
 class PolicyDecision:
     allowed: bool
