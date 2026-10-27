@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b1118">
+  <title>CanaryChain Dashboard</title>
+  <link rel="stylesheet" href="./css/styles.css">
+  <!--
+    Member C shell (PDF p5). Rules for the JS that comes later:
+    - Every panel starts as "unavailable" or "idle". Nothing here is sample data.
+    - JS renders only what the live API returns. It never invents keys, values or results.
+    - Form field names mirror the PDF p6 *proposed* payloads and are NOT final until
+      Member A publishes docs/api-contract.md. Revisit before wiring.
+    - Panel states (data-state): idle | loading | ready | empty | error | unavailable
+    - Buttons marked data-requires-api are disabled until the API is wired.
+  -->
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <div class="app" id="app">
+
+    <!-- ===== Left navigation ===== -->
+    <aside class="sidebar" id="sidebar" aria-label="Primary">
+      <div class="sidebar-head">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">CanaryChain</span>
+        </div>
+        <button type="button" class="icon-button sidebar-collapse" id="sidebar-collapse"
+                aria-controls="sidebar" aria-expanded="true">
+          <span class="visually-hidden">Collapse navigation</span>
+          <span aria-hidden="true">&lsaquo;</span>
+        </button>
+      </div>
+
+      <nav class="nav" aria-label="Dashboard sections">
+        <ul class="nav-list">
+          <li><a class="nav-link" href="#section-overview" aria-current="page" data-nav="overview">Overview</a></li>
+          <li><a class="nav-link" href="#section-audit" data-nav="audit">Audit events</a></li>
+          <li><a class="nav-link" href="#section-canary" data-nav="canary">Canary events</a></li>
+          <li><a class="nav-link" href="#section-attack" data-nav="attack">Attack simulation</a></li>
+          <li><a class="nav-link" href="#section-results" data-nav="results">Results</a></li>
+          <li><a class="nav-link" href="#section-defense" data-nav="defense">Defense</a></li>
+          <li><a class="nav-link" href="#section-verify" data-nav="verify">Verification</a></li>
+        </ul>
+      </nav>
+
+      <div class="sidebar-footer">
+        <p class="sidebar-note">Live API data only. Anything unavailable is labelled.</p>
+      </div>
+    </aside>
+
+    <div class="main-column">
+
+      <!-- ===== Top bar ===== -->
+      <header class="topbar" role="banner">
+        <button type="button" class="icon-button nav-toggle" id="nav-toggle"
+                aria-controls="sidebar" aria-expanded="false">
+          <span class="visually-hidden">Toggle navigation</span>
+          <span aria-hidden="true">&#9776;</span>
+        </button>
+
+        <div class="search" role="search">
+          <label class="visually-hidden" for="global-search">Search loaded events</label>
+          <input type="search" id="global-search" name="q"
+                 placeholder="Search loaded events (tenant, type, ATLAS)"
+                 autocomplete="off">
+        </div>
+
+        <div class="topbar-controls">
+          <div class="health" id="health-indicator" data-state="unavailable" role="status">
+            <span class="health-dot" aria-hidden="true"></span>
+            <span class="health-text" id="health-text">API health: not checked</span>
+          </div>
+
+        </div>
+      </header>
+
+      <main class="content" id="main-content" tabindex="-1">
+
+        <noscript>
+          <p class="notice notice-warn">
+            JavaScript is required to load live data. No data is shown without it.
+          </p>
+        </noscript>
+
+        <div class="page-head">
+          <h1 class="page-title">Security overview</h1>
+          <div class="page-actions">
+            <span class="muted" id="last-updated">Last updated: never</span>
+            <button type="button" class="button" id="refresh-all" disabled data-requires-api>
+              Refresh all
+            </button>
+          </div>
+        </div>
+
+        <!-- ===== Overview: summary cards ===== -->
+        <section class="section" id="section-overview" aria-labelledby="overview-title">
+          <h2 class="visually-hidden" id="overview-title">Summary</h2>
+
+          <div class="cards" id="summary-cards">
+            <article class="card" id="card-health" data-state="unavailable">
+              <h3 class="card-label">Service health</h3>
+              <p class="card-value" data-field="value">&mdash;</p>
+              <p class="card-note" data-field="note">Unavailable: no data loaded.</p>
+            </article>
+
+            <article class="card" id="card-audit" data-state="unavailable">
+              <h3 class="card-label">Audit events loaded</h3>
+              <p class="card-value" data-field="value">&mdash;</p>
+              <p class="card-note" data-field="note">Unavailable: no data loaded.</p>
+            </article>
+
+            <article class="card" id="card-canary" data-state="unavailable">
+              <h3 class="card-label">Canary trips loaded</h3>
+              <p class="card-value" data-field="value">&mdash;</p>
+              <p class="card-note" data-field="note">Unavailable: no data loaded.</p>
+            </article>
+
+            <article class="card" id="card-verify" data-state="unavailable">
+              <h3 class="card-label">Chain verification</h3>
+              <p class="card-value" data-field="value">Not checked</p>
+              <p class="card-note" data-field="note">Unavailable: not requested yet.</p>
+            </article>
+          </div>
+        </section>
+
+        <!-- ===== Audit table + monitoring ===== -->
+        <div class="split">
+
+          <section class="section split-main" id="section-audit" aria-labelledby="audit-title">
+            <div class="section-head">
+              <h2 class="section-title" id="audit-title">Audit events</h2>
+              <button type="button" class="button" id="refresh-audit" disabled data-requires-api>
+                Refresh
+              </button>
+            </div>
+
+            <div class="panel panel-flush" id="audit-panel" data-state="unavailable">
+              <div class="table-wrap">
+                <table class="table" id="audit-table">
+                  <caption class="visually-hidden">Audit events returned by the server</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Time</th>
+                      <th scope="col">Tenant</th>
+                      <th scope="col">Actor</th>
+                      <th scope="col">Event type</th>
+                      <th scope="col">ATLAS technique</th>
+                    </tr>
+                  </thead>
+                  <tbody id="audit-body">
+                    <tr class="empty-row">
+                      <td colspan="5">Unavailable: no audit data loaded.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="state-message" id="audit-message"></p>
+            </div>
+          </section>
+
+          <aside class="section split-side" aria-labelledby="monitor-title">
+            <h2 class="section-title" id="monitor-title">Monitoring</h2>
+            <!-- Later JS may summarise only events that were actually loaded (for example,
+                 counts per tenant). It must not show anything when no data is loaded. -->
+            <div class="panel" id="monitor-panel" data-state="unavailable">
+              <div class="monitor-body" id="monitor-body"></div>
+              <p class="state-message" id="monitor-message">
+                Unavailable: nothing to chart until events are loaded.
+              </p>
+            </div>
+          </aside>
+
+        </div>
+
+        <!-- ===== Canary events list + selected-event detail ===== -->
+        <div class="split split-detail">
+
+          <section class="section split-side" id="section-canary" aria-labelledby="canary-title">
+            <div class="section-head">
+              <h2 class="section-title" id="canary-title">Canary events</h2>
+              <button type="button" class="button" id="refresh-canary" disabled data-requires-api>
+                Refresh
+              </button>
+            </div>
+
+            <div class="panel panel-flush" id="canary-panel" data-state="unavailable">
+              <ul class="event-list" id="canary-list" aria-live="polite"></ul>
+              <p class="state-message" id="canary-message">
+                Unavailable: no canary data loaded.
+              </p>
+            </div>
+          </section>
+
+          <section class="section split-main" aria-labelledby="detail-title">
+            <h2 class="section-title" id="detail-title">Selected event</h2>
+
+            <div class="panel" id="event-detail" data-state="idle">
+              <p class="state-message" id="event-detail-empty">
+                Select an audit or canary event to see the fields the server returned.
+              </p>
+
+              <div class="detail-body" id="event-detail-body" hidden>
+                <p class="detail-meta muted" id="event-detail-meta"></p>
+                <ul class="badge-row" id="event-detail-badges"></ul>
+                <dl class="kv" id="event-detail-fields"></dl>
+
+                <details class="raw" id="event-detail-raw-wrap">
+                  <summary>Raw fields as returned</summary>
+                  <pre id="event-detail-raw"></pre>
+                </details>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- ===== Attack simulation + Results ===== -->
+        <div class="pair">
+
+          <section class="section" id="section-attack" aria-labelledby="attack-title">
+            <h2 class="section-title" id="attack-title">Attack simulation</h2>
+            <p class="section-help">
+              Submit a test prompt. The server decides whether it is allowed or blocked.
+              This page never makes that decision.
+            </p>
+
+            <div class="panel">
+              <form class="form" id="attack-form" novalidate>
+                <div class="field">
+                  <label for="attack-tenant">Tenant</label>
+                  <input type="text" id="attack-tenant" name="tenant" value="red-team" readonly
+                         aria-describedby="attack-tenant-hint">
+                  <p class="hint" id="attack-tenant-hint">
+                    Informational: the backend currently records every attack as red-team and only reads the prompt.
+                  </p>
+                </div>
+
+                <div class="field">
+                  <label for="attack-prompt">Prompt</label>
+                  <textarea id="attack-prompt" name="prompt" rows="5"></textarea>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="button button-primary" id="attack-submit"
+                          disabled data-requires-api>Submit attack</button>
+                  <span class="hint">The server decides whether the prompt is allowed.</span>
+                </div>
+              </form>
+
+              <div class="outcome" id="attack-outcome" data-state="idle" aria-live="polite">
+                <h3 class="outcome-title">Outcome</h3>
+                <p class="badge" id="attack-status" data-status="none">No request submitted</p>
+                <dl class="kv" id="attack-output"></dl>
+                <p class="state-message" id="attack-message"></p>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="section-results" aria-labelledby="results-title">
+            <div class="section-head">
+              <h2 class="section-title" id="results-title">Results</h2>
+              <button type="button" class="button" id="refresh-results" disabled data-requires-api>
+                Refresh
+              </button>
+            </div>
+            <!-- Open question for Member A: PDF p6 shows one GET /result and no list endpoint,
+                 but p5 asks for "recent results". -->
+            <div class="panel" id="results-panel" data-state="unavailable">
+              <ul class="result-list" id="results-list" aria-live="polite"></ul>
+              <p class="state-message" id="results-message">
+                Unavailable: no result data loaded.
+              </p>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- ===== Defense + Verification ===== -->
+        <div class="pair">
+
+          <section class="section" id="section-defense" aria-labelledby="defense-title">
+            <h2 class="section-title" id="defense-title">Defense rules</h2>
+            <p class="section-help">
+              Add or update a defensive rule. The saved status shown is the server's response.
+            </p>
+
+            <div class="panel">
+              <form class="form" id="defense-form" novalidate>
+                <div class="field">
+                  <label for="defense-name">Rule name</label>
+                  <input type="text" id="defense-name" name="name" autocomplete="off">
+                </div>
+
+                <div class="field">
+                  <label for="defense-rule">Rule</label>
+                  <textarea id="defense-rule" name="rule" rows="4" aria-describedby="defense-rule-hint"></textarea>
+                  <p class="hint" id="defense-rule-hint">
+                    A case-insensitive regular expression (up to 200 characters). Prompts that match an enabled rule are denied.
+                  </p>
+                </div>
+
+                <div class="field field-inline">
+                  <input type="checkbox" id="defense-enabled" name="enabled">
+                  <label for="defense-enabled">Enabled</label>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="button button-primary" id="defense-submit"
+                          disabled data-requires-api>Save rule</button>
+                  <span class="hint">Saves or updates the rule on the server.</span>
+                </div>
+              </form>
+
+              <div class="outcome" id="defense-outcome" data-state="idle" aria-live="polite">
+                <h3 class="outcome-title">Status</h3>
+                <p class="badge" id="defense-status" data-status="none">Nothing saved</p>
+                <dl class="kv" id="defense-output"></dl>
+                <p class="state-message" id="defense-message"></p>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="section-verify" aria-labelledby="verify-title">
+            <h2 class="section-title" id="verify-title">Audit chain verification</h2>
+            <p class="section-help">
+              The server checks the hash chain. The result below is that response, not a local guess.
+            </p>
+
+            <div class="panel">
+              <div class="verify-row">
+                <button type="button" class="button button-primary" id="verify-button"
+                        disabled data-requires-api>Verify chain</button>
+                <p class="badge" id="verify-status" data-status="not-checked" role="status">
+                  Not checked
+                </p>
+              </div>
+              <!-- data-status values JS will set: not-checked | checking | verified | failed | unavailable -->
+              <dl class="kv" id="verify-detail"></dl>
+              <p class="state-message" id="verify-message"></p>
+            </div>
+          </section>
+
+        </div>
+
+        <footer class="page-foot">
+          <p class="muted">
+            CanaryChain &middot; Every value on this page comes from a live API response or is
+            labelled unavailable. Nothing here is sample data.
+          </p>
+        </footer>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Classic scripts keep the page working when opened directly from disk.
+       api.js must load first: it holds all network calls. -->
+  <script src="./js/api.js" defer></script>
+  <script src="./js/dashboard.js" defer></script>
+</body>
+</html>

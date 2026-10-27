@@ -20,4 +20,5 @@ venv/
 # Additional secret protection
 *.pem
 *.key
-secrets/
+secrets/.venv/
+.env

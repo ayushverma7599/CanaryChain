@@ -1,0 +1,39 @@
+{
+  "_note": "status: TODO = no suitable technique found; proposed = candidate taken from public sources, NOT yet checked by a team member (reported as 'unmapped'); reviewed = checked on https://atlas.mitre.org by a team member (the only status that is shown). Candidates below were looked up against ATLAS data version 2026.07. Never type IDs from memory: ATLAS changes between versions.",
+  "credential_canary_trip": {
+    "status": "proposed",
+    "technique_id": "AML.T0057",
+    "technique_name": "LLM Data Leakage",
+    "tactic": "Exfiltration",
+    "rationale": "Another tenant's secret appeared in an LLM response. MITRE's definition covers leaked information from other users of the LLM.",
+    "sources": ["https://d3fend.mitre.org/offensive-technique/attack/AML.T0057/"]
+  },
+  "file_canary_trip": {
+    "status": "proposed",
+    "technique_id": "AML.T0035",
+    "technique_name": "AI Artifact Collection",
+    "tactic": "Collection",
+    "rationale": "The decoy file imitates red-team findings, i.e. AI-related artifacts. Moderate fit: confirm the wording before presenting.",
+    "sources": ["https://d3fend.mitre.org/offensive-technique/attack/AML.T0035/"]
+  },
+  "policy_block": {
+    "status": "proposed",
+    "technique_id": "AML.T0051",
+    "technique_name": "LLM Prompt Injection",
+    "tactic": "Execution",
+    "rationale": "A crafted prompt trying to make the LLM disclose credentials was blocked at the gateway (an attempt, not a success). Moderate fit.",
+    "sources": ["https://www.startupdefense.io/mitre-atlas-techniques/aml-t0051-llm-prompt-injection"]
+  },
+  "network_canary_trip": {
+    "status": "TODO",
+    "technique_id": null,
+    "technique_name": null,
+    "rationale": "No faithful ATLAS technique found for a connection to a decoy port. Leave unmapped unless one is found."
+  },
+  "process_canary_trip": {
+    "status": "TODO",
+    "technique_id": null,
+    "technique_name": null,
+    "rationale": "No faithful ATLAS technique found for seeing another tenant's decoy process. Leave unmapped unless one is found."
+  }
+}
