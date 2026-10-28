@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.api.schemas import (
@@ -17,7 +17,7 @@ from app.llm.client import LLMClient, get_llm_client
 from app.core.gateway import GatewayError
 from app.core.policy_engine import PolicyEngine, rule_id_for, validate_rule_pattern
 from app.db.database import CoreDatabase, CoreDatabaseError, get_core_database
-from app.db.models_core import DefensiveRule
+from app.db.models_core import CoreRecord, DefensiveRule
 from app.db.security_store import SecurityDatabaseError
 from app.security import record_event, scan_text
 
@@ -33,6 +33,16 @@ def _report_security(report, *args) -> None:
         report(*args)
     except (SecurityDatabaseError, ValueError):
         logger.exception("security event was not recorded")
+
+
+def _to_response(record: CoreRecord) -> CoreResponse:
+    """Project a completed record into the public response (ids included)."""
+    return CoreResponse(
+        operation=record.operation,
+        result=record.result,
+        request_id=record.request_id,
+        result_id=record.result_id,
+    )
 
 
 def _run_operation(
@@ -56,7 +66,7 @@ def _run_operation(
             record_event, REQUESTING_TENANT, "policy_block", {"operation": operation, "rule_id": decision.rule_id}
         )
         try:
-            database.save_record(
+            denied = database.save_record(
                 operation=operation,
                 prompt=payload.prompt,
                 result=None,
@@ -71,6 +81,7 @@ def _run_operation(
                 code="policy_denied",
                 message=decision.reason,
                 rule_id=decision.rule_id,
+                request_id=denied.request_id,
             ).model_dump(),
         )
 
@@ -92,9 +103,8 @@ def _run_operation(
         ) from exc
 
     _report_security(scan_text, REQUESTING_TENANT, result)
-    response = CoreResponse(operation=operation, result=result)
     try:
-        database.save_record(
+        saved = database.save_record(
             operation=operation,
             prompt=payload.prompt,
             result=result,
@@ -102,7 +112,7 @@ def _run_operation(
         )
     except CoreDatabaseError as exc:
         raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
-    return response
+    return _to_response(saved)
 
 
 @router.post(
@@ -175,17 +185,29 @@ def defense(
     return _run_operation("defense", payload, llm_client, database)
 
 
-@router.get("/result", response_model=ResultResponse)
-def get_result(database: CoreDatabase = Depends(get_core_database)) -> ResultResponse:
+@router.get(
+    "/result",
+    response_model=ResultResponse,
+    responses={404: {"description": "No completed result has that result_id."}},
+    description=(
+        "Without a query, the latest completed result (or null). With ?result_id=, that exact completed result; "
+        "an unknown id is a 404."
+    ),
+)
+def get_result(
+    result_id: str | None = Query(default=None, min_length=1, max_length=64),
+    database: CoreDatabase = Depends(get_core_database),
+) -> ResultResponse:
     try:
-        record = database.latest_completed_record()
+        if result_id is None:
+            record = database.latest_completed_record()
+        else:
+            record = database.completed_record_by_result_id(result_id)
+            if record is None:
+                raise HTTPException(status_code=404, detail="Result not found")
     except CoreDatabaseError as exc:
         raise HTTPException(status_code=503, detail="Core persistence is unavailable") from exc
-    result = (
-        CoreResponse(operation=record.operation, result=record.result)
-        if record is not None and record.result is not None
-        else None
-    )
+    result = _to_response(record) if record is not None and record.result is not None else None
     return ResultResponse(result=result)
 
 

@@ -10,6 +10,8 @@ class CoreRecord:
     status: str
     rule_id: str | None
     created_at: str
+    request_id: str
+    result_id: str | None
 
 
 @dataclass(frozen=True)

@@ -41,12 +41,15 @@ class DefenseRuleResponse(BaseModel):
 class CoreResponse(BaseModel):
     operation: Operation
     result: str
+    request_id: str
+    result_id: str
 
 
 class PolicyDenialResponse(BaseModel):
     code: Literal["policy_denied"]
     message: str
     rule_id: str
+    request_id: str
 
 
 class ResultResponse(BaseModel):

@@ -80,7 +80,9 @@ def test_prompt_bodies_still_use_the_shared_prompt_operation(env):
     client, llm = env
     response = client.post("/defense", json={"prompt": "hello"})
     assert response.status_code == 200
-    assert response.json() == {"operation": "defense", "result": "stub response"}
+    body = response.json()
+    assert body.pop("request_id").startswith("req_") and body.pop("result_id").startswith("res_")
+    assert body == {"operation": "defense", "result": "stub response"}
     assert llm.prompts == ["hello"]
 
 

@@ -88,3 +88,42 @@ def test_database_initialization_failure_uses_database_error(tmp_path) -> None:
 
     with pytest.raises(CoreDatabaseError, match="initialize"):
         CoreDatabase(parent_file / "core.sqlite3")
+
+def test_ids_are_unique_and_result_id_exists_only_for_completed_records(tmp_path) -> None:
+    database = CoreDatabase(tmp_path / "core.sqlite3")
+    try:
+        done = database.save_record("query", "p", "r", "completed")
+        denied = database.save_record("query", "p", None, "denied", rule_id="x")
+        failed = database.save_record("query", "p", None, "gateway_error")
+
+        assert len({done.request_id, denied.request_id, failed.request_id}) == 3
+        assert done.result_id and denied.result_id is None and failed.result_id is None
+        assert database.completed_record_by_result_id(done.result_id) == done
+        assert database.completed_record_by_result_id("res_nope") is None
+    finally:
+        database.close()
+
+
+def test_database_created_before_ids_existed_is_migrated_and_backfilled(tmp_path) -> None:
+    import sqlite3
+
+    path = tmp_path / "old.sqlite3"
+    old = sqlite3.connect(path)
+    old.execute(
+        "CREATE TABLE core_records (id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, "
+        "prompt TEXT NOT NULL, result TEXT, status TEXT NOT NULL, rule_id TEXT, "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    old.execute("INSERT INTO core_records (operation, prompt, result, status) VALUES ('query','a','ra','completed')")
+    old.execute("INSERT INTO core_records (operation, prompt, status) VALUES ('query','b','denied')")
+    old.commit()
+    old.close()
+
+    database = CoreDatabase(path)
+    try:
+        latest = database.latest_completed_record()
+        assert latest is not None and latest.request_id and latest.result_id
+        assert database.latest_record().result_id is None  # the denied row stays without a result_id
+        assert database.completed_record_by_result_id(latest.result_id) == latest
+    finally:
+        database.close()
