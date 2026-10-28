@@ -5,10 +5,10 @@ All commands run from the repository root. Layers go from cheapest to most compl
 ## 1. No Docker: unit tests, lint, frontend tests
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt ruff watchdog
-python -m pytest tests/unit -q                    # backend + security layer (68+ tests)
+pip install -r requirements-dev.txt
+python -m pytest -q                               # tests/unit + tests/integration (the same command CI runs)
 node --test tests/frontend/*.test.js              # dashboard logic (needs Node 20+)
-ruff check app/security app/api/routes/security.py
+ruff check .                                      # config in ruff.toml; CI runs this too
 ```
 
 ## 2. Docker: start the whole stack

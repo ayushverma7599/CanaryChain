@@ -10,7 +10,6 @@ from dataclasses import dataclass
 
 from app.db.database import CoreDatabase
 
-
 # A group that contains a quantifier and is itself quantified, e.g. (a+)+ or (.*)*: the classic
 # catastrophic-backtracking shape. This is a heuristic, not a proof of safety.
 _NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]")

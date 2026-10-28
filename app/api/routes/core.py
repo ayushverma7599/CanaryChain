@@ -13,12 +13,12 @@ from app.api.schemas import (
     PolicyDenialResponse,
     ResultResponse,
 )
-from app.llm.client import LLMClient, get_llm_client
 from app.core.gateway import GatewayError
 from app.core.policy_engine import PolicyEngine, rule_id_for, validate_rule_pattern
 from app.db.database import CoreDatabase, CoreDatabaseError, get_core_database
 from app.db.models_core import CoreRecord, DefensiveRule
 from app.db.security_store import SecurityDatabaseError
+from app.llm.client import LLMClient, get_llm_client
 from app.security import record_event, scan_text
 
 router = APIRouter()

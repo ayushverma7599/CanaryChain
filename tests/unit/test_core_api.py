@@ -1,5 +1,5 @@
-import pytest
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes.core import get_llm_client
