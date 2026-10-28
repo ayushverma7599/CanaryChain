@@ -8,10 +8,11 @@ import os
 import re
 import sqlite3
 import threading
+import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterator
 
 from app.db.models_core import CoreRecord, DefensiveRule
 
@@ -26,6 +27,10 @@ DEFAULT_DEFENSIVE_RULE = DefensiveRule(
 
 _OPERATIONS = {"attack", "query", "defense"}
 _STATUSES = {"completed", "denied", "gateway_error"}
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex}"
 
 
 class CoreDatabaseError(RuntimeError):
@@ -91,10 +96,13 @@ class CoreDatabase:
                     result TEXT,
                     status TEXT NOT NULL CHECK (status IN ('completed', 'denied', 'gateway_error')),
                     rule_id TEXT,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    request_id TEXT,
+                    result_id TEXT
                 )
                 """
             )
+            self._migrate_record_ids(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS defensive_rules (
@@ -120,6 +128,27 @@ class CoreDatabase:
             )
 
     @staticmethod
+    def _migrate_record_ids(connection: sqlite3.Connection) -> None:
+        """Add request_id/result_id to a database created before they existed, and index them."""
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(core_records)")}
+        for column in ("request_id", "result_id"):
+            if column not in columns:
+                connection.execute(f"ALTER TABLE core_records ADD COLUMN {column} TEXT")
+        for row in connection.execute(
+            "SELECT id, status FROM core_records WHERE request_id IS NULL OR (status = 'completed' AND result_id IS NULL)"
+        ).fetchall():
+            connection.execute(
+                "UPDATE core_records SET request_id = COALESCE(request_id, ?), "
+                "result_id = CASE WHEN status = 'completed' THEN COALESCE(result_id, ?) END WHERE id = ?",
+                (_new_id("req"), _new_id("res"), row["id"]),
+            )
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_core_records_request_id ON core_records (request_id)")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_core_records_result_id ON core_records (result_id) "
+            "WHERE result_id IS NOT NULL"
+        )
+
+    @staticmethod
     def _core_record(row: sqlite3.Row) -> CoreRecord:
         return CoreRecord(
             id=row["id"],
@@ -129,6 +158,8 @@ class CoreDatabase:
             status=row["status"],
             rule_id=row["rule_id"],
             created_at=row["created_at"],
+            request_id=row["request_id"],
+            result_id=row["result_id"],
         )
 
     def save_record(
@@ -144,13 +175,15 @@ class CoreDatabase:
         if status not in _STATUSES:
             raise ValueError("unsupported core record status")
 
+        request_id = _new_id("req")
+        result_id = _new_id("res") if status == "completed" else None
         with self._transaction() as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO core_records (operation, prompt, result, status, rule_id)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO core_records (operation, prompt, result, status, rule_id, request_id, result_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (operation, prompt, result, status, rule_id),
+                (operation, prompt, result, status, rule_id, request_id, result_id),
             )
             row = connection.execute(
                 "SELECT * FROM core_records WHERE id = ?",
@@ -181,6 +214,19 @@ class CoreDatabase:
                 ).fetchone()
             except sqlite3.Error as exc:
                 raise CoreDatabaseError("could not read latest core result") from exc
+        return self._core_record(row) if row is not None else None
+
+    def completed_record_by_result_id(self, result_id: str) -> CoreRecord | None:
+        with self._lock:
+            if self._closed:
+                raise CoreDatabaseError("core database is closed")
+            try:
+                row = self._connection.execute(
+                    "SELECT * FROM core_records WHERE result_id = ? AND status = ?",
+                    (result_id, "completed"),
+                ).fetchone()
+            except sqlite3.Error as exc:
+                raise CoreDatabaseError("could not read core result") from exc
         return self._core_record(row) if row is not None else None
 
     def save_defensive_rule(self, rule: DefensiveRule) -> None:

@@ -1,0 +1,16 @@
+# Lint config used by CI (.github/workflows/ci.yml) and `ruff check .` locally.
+target-version = "py312"
+line-length = 120
+extend-exclude = [".venv", "venv", "node_modules"]
+
+[lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+  "B008",  # FastAPI's Depends()/Query() in argument defaults is the framework's idiom
+  "E501",  # long lines: no formatter is enforced, readability is left to review
+]
+
+[lint.per-file-ignores]
+# gateway and tenant are deliberately compact stdlib-only scripts (they run in minimal containers)
+"gateway/*.py" = ["E401", "E701", "E702", "E731", "I001"]
+"tenants/*.py" = ["E401", "E701", "E702", "E731", "I001"]

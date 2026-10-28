@@ -50,11 +50,14 @@ This README is a complete guide to set up, run, test and demo the project on **W
 | Stub LLM tenant | Ayush | Done |
 | Break-it demo scenarios + false-alarm baseline | Ayush | Done |
 | Core API, prompt policy, SQLite persistence | Harshit | Implemented; unit tested |
-| Dashboard core API integration | Aditya | Available at `http://localhost:8081`; audit panels remain unavailable |
-| Canary agents (credential, file, network, process) | Harshit | Not integrated |
-| Collector API, classifier, scoring, hash chain, `verify_chain.py` | Aditya | Not integrated |
+| Core API contract: `request_id`, `result_id`, `GET /result?result_id=` | Harshit | Done, unit and integration tested (`docs/api-contract.md`) |
+| Dashboard (core API, audit, canary, verify panels) | Aditya | Wired to the live API at `http://localhost:8081` |
+| Canary agents (credential, file, network, process) | Harshit | In the repository and compose; unit tested; the Docker-only parts (`canary-host`, `docker exec`) need a manual run |
+| Collector API, classifier, scoring, hash chain, `verify_chain.py` | Aditya | In the repository (`app/security`, `/internal/event`); unit and in-process integration tested |
+| CI (lint, Python tests, in-process integration test, frontend tests) | Aditya | `.github/workflows/ci.yml` |
+| Runbook | Aditya | [`docs/runbook.md`](docs/runbook.md) |
 
-> Update this table as parts are merged. Sections marked *(planned)* below describe components that are not in the repository yet.
+> What the automatic tests do **not** cover is listed in [`docs/runbook.md`](docs/runbook.md#6-tests-and-ci-no-docker-needed): network isolation and the host canary sidecar need Docker and are checked by hand (`./tests/isolation_check.sh`, `./tests/e2e_smoke.sh`).
 
 ---
 
@@ -76,7 +79,7 @@ This README is a complete guide to set up, run, test and demo the project on **W
                      │  └────┘ └────┘ └────┘                                         │
                      │                                                                │
                      │  frontend :8081 ──► core API ──► gateway ──► tenants           │
-                     │  (audit/canary/verification stay unavailable until implemented)│
+                     │  canary sidecars + gateway ──► core API /internal/event        │
                      └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -97,11 +100,18 @@ CanaryChain/
 │   ├── Dockerfile
 │   └── gateway.py            # routing, source-IP attribution, token scanning
 ├── tests/
-│   └── isolation_check.sh    # proves isolation AND that tenants still work
+│   ├── isolation_check.sh    # proves isolation AND that tenants still work (needs Docker)
+│   ├── unit/                 # pytest: core API, policy, DB, security layer, gateway
+│   ├── integration/          # pytest: real core + gateway + tenant in one process
+│   ├── frontend/             # node --test: dashboard logic
+│   └── e2e_smoke.sh          # full-stack check (needs Docker)
 ├── demo/
 │   ├── breakit.sh            # deliberately breaks isolation (leak / network)
 │   └── normal_traffic.sh     # normal activity: canaries must stay silent
-└── (planned) security collector, classifier, hash-chain verifier
+├── app/security/             # canaries, severity, ATLAS mapping, audit hash chain, verifier
+├── docs/                     # api-contract, security-contract, e2e-testing, runbook
+├── ruff.toml, pytest.ini, requirements-dev.txt
+└── .github/workflows/ci.yml
 ```
 
 ---
@@ -251,7 +261,7 @@ Open the dashboard at `http://localhost:8081/`. Its backend API is available thr
 curl -s http://localhost:8081/api/health
 ```
 
-The dashboard's audit events, canary events, and chain verification remain visibly unavailable until the real security pipeline is integrated. The defense prompt form uses the current `/defense` LLM operation; it does not create or edit defensive rules.
+The dashboard's audit, canary and verify panels read `/api/audit`, `/api/canary` and `/api/verify`. `POST /defense` with `{name, rule, enabled}` saves a Blue Team rule; every successful prompt response carries a `request_id` and `result_id`, and `GET /api/result?result_id=<id>` fetches that exact result (see `docs/api-contract.md`). Operations, error table and recovery steps: [`docs/runbook.md`](docs/runbook.md).
 
 ### Stop and clean up
 
@@ -347,9 +357,15 @@ blue now reaches red directly, because we deliberately attached blue to red's ne
 ./tests/isolation_check.sh      # back to 11/11
 ```
 
-### Step 4: Tamper evidence (objective 03) *(planned, needs the collector)*
+### Step 4: Tamper evidence (objective 03)
 
-Edit one old audit-log line, click **Verify chain** on the dashboard (or run `python verify_chain.py`). Verification fails and names the broken entry.
+```bash
+curl -s localhost:8081/api/verify        # verified:true, note head_hash
+./demo/breakit.sh tamper                 # edits one old audit row in SQLite
+curl -s localhost:8081/api/verify        # verified:false + first_error_event_id
+```
+
+Or click **Verify chain** on the dashboard. Verification fails and names the broken entry. Then reset (`docker compose down -v`).
 
 ---
 
@@ -398,7 +414,7 @@ Decoys planted in each tenant:
 - Routes `/<tenant>/<path>` to `http://<tenant>:8000/<path>`.
 - **Actor identification:** looks at the connection's **source IP** and matches it to a tenant using Docker's internal DNS. A tenant that sends a fake `X-Tenant` header is not believed; the lie is logged as `spoof_claimed`. A request from the host (outside any tenant network) is `actor: host`.
 - Scans every response for `CNRY-(red|blue|llm)-<32 hex>` tokens and records which tenants' tokens it saw.
-- Writes one JSON line per request, and (once the collector exists) forwards it to `COLLECTOR_URL`.
+- Writes one JSON line per request, and, when a tenant receives another tenant's token and `COLLECTOR_URL` plus `INTERNAL_EVENT_TOKEN` are set, reports it to the core API's `/internal/event`.
 
 Example log line:
 
@@ -543,4 +559,4 @@ Full reset: `docker compose down -v && docker compose up -d --build`.
 | **Harshit** | Canary agents (credential, file, network, process) |
 | **Aditya** | Classifier, severity scoring, hash chain, collector API, dashboard |
 
-Contributing: create a branch, make your change, run `./tests/isolation_check.sh` (must stay at all-pass), and open a pull request.
+Contributing: create a branch, make your change, run `ruff check .` and `python -m pytest` (CI runs both, plus the frontend tests), run `./tests/isolation_check.sh` if you touched anything container-related (must stay at all-pass), and open a pull request.

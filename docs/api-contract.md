@@ -27,10 +27,12 @@ The repository does not define different prompt construction or processing behav
 The API sends the validated prompt through `LLMClient` and `GatewayClient` to the existing gateway endpoint `POST /llm/v1/chat`. The application code does not call the LLM tenant directly. On success, the API returns HTTP `200`:
 
 ```json
-{"operation": "query", "result": "LLM reply"}
+{"operation": "query", "result": "LLM reply", "request_id": "req_3f2a…", "result_id": "res_9c41…"}
 ```
 
 `operation` is the requested operation name (`attack`, `query`, or `defense`); `result` is the gateway-provided string reply. The completed request/result is stored in the core SQLite database.
+
+`request_id` identifies this submission and `result_id` identifies the stored result it produced. Both are opaque, server-generated strings (`req_` / `res_` followed by 32 hex characters), unique across the database, and never reused. Pass `result_id` to `GET /result?result_id=` to read this result back later, even after newer results exist.
 
 ### Policy Denial
 
@@ -42,9 +44,12 @@ A matching request returns HTTP `403` and does not call the LLM client or gatewa
 {
   "code": "policy_denied",
   "message": "Requests to disclose or exfiltrate credentials are denied.",
-  "rule_id": "credential-disclosure-request"
+  "rule_id": "credential-disclosure-request",
+  "request_id": "req_3f2a…"
 }
 ```
+
+A denied request has a `request_id` but never a `result_id`: nothing was produced to fetch.
 
 The decision is logged, and when the database write succeeds a denied core record is persisted with the operation, prompt, status, and rule ID. Denied requests are not returned by `GET /result`, which selects completed records only.
 
@@ -75,10 +80,10 @@ A body that contains neither shape returns `422`. Any enabled rule, including a 
 
 ## GET /result
 
-Returns HTTP `200` with the latest record whose status is `completed`, projected into the existing response schema:
+Without a query string it returns HTTP `200` with the latest record whose status is `completed`, projected into the response schema (the same object a successful POST returned):
 
 ```json
-{"result":{"operation":"query","result":"LLM reply"}}
+{"result":{"operation":"query","result":"LLM reply","request_id":"req_3f2a…","result_id":"res_9c41…"}}
 ```
 
 If no completed record exists, it returns:
@@ -87,7 +92,11 @@ If no completed record exists, it returns:
 {"result":null}
 ```
 
-The selection is global to the configured core database, not scoped to a caller, tenant, or operation. Denied and gateway-error records may be stored when their database writes succeed, but are not returned by this endpoint. A handled core database error returns HTTP `503` with `{"detail":"Core persistence is unavailable"}`.
+`GET /result?result_id=<id>` returns that exact completed result in the same shape, regardless of how many newer results exist. A `result_id` that does not exist returns HTTP `404` with `{"detail":"Result not found"}`. This includes a `request_id` passed by mistake, since only completed records have a `result_id`. An empty `result_id` or one longer than 64 characters returns `422`. Looking a result up by id does not change what the bare `GET /result` returns.
+
+The bare form's selection is global to the configured core database, not scoped to a caller, tenant, or operation; so is the lookup by id (anyone who knows an id can read it; ids are unguessable but not an access control). Denied and gateway-error records may be stored when their database writes succeed, but are not returned by this endpoint. A handled core database error returns HTTP `503` with `{"detail":"Core persistence is unavailable"}`.
+
+Databases created before these ids existed are migrated on startup: existing rows are given a `request_id`, and completed rows a `result_id`.
 
 ## GET /health
 
